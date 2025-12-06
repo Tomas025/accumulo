@@ -1,34 +1,37 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.tserver.log;
 
 import java.io.EOFException;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.AbstractMap;
 import java.util.Iterator;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.PriorityQueue;
 
 import org.apache.accumulo.server.fs.VolumeManager;
 import org.apache.accumulo.server.log.SortedLogState;
 import org.apache.accumulo.tserver.logger.LogEvents;
 import org.apache.accumulo.tserver.logger.LogFileKey;
 import org.apache.accumulo.tserver.logger.LogFileValue;
-import org.apache.commons.collections.buffer.PriorityBuffer;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -64,7 +67,7 @@ public class RecoveryLogReader implements CloseableIterator<Entry<LogFileKey,Log
     private static Object create(java.lang.Class<?> klass) {
       try {
         return klass.getConstructor().newInstance();
-      } catch (Throwable t) {
+      } catch (Exception t) {
         throw new RuntimeException("Unable to construct objects to use for comparison");
       }
     }
@@ -88,7 +91,7 @@ public class RecoveryLogReader implements CloseableIterator<Entry<LogFileKey,Log
 
     @Override
     public boolean equals(Object obj) {
-      return this == obj || (obj != null && obj instanceof Index && 0 == compareTo((Index) obj));
+      return this == obj || (obj != null && obj instanceof Index && compareTo((Index) obj) == 0);
     }
 
     @Override
@@ -105,12 +108,12 @@ public class RecoveryLogReader implements CloseableIterator<Entry<LogFileKey,Log
         int result = ((WritableComparable) key).compareTo(o.key);
         return result;
       } catch (IOException ex) {
-        throw new RuntimeException(ex);
+        throw new UncheckedIOException(ex);
       }
     }
   }
 
-  private PriorityBuffer heap = new PriorityBuffer();
+  private PriorityQueue<Index> heap = new PriorityQueue<>();
   private Iterator<Entry<LogFileKey,LogFileValue>> iter;
 
   public RecoveryLogReader(VolumeManager fs, Path directory) throws IOException {
@@ -130,7 +133,7 @@ public class RecoveryLogReader implements CloseableIterator<Entry<LogFileKey,Log
       if (SortedLogState.FAILED.getMarker().equals(child.getPath().getName())) {
         continue;
       }
-      FileSystem ns = fs.getVolumeByPath(child.getPath()).getFileSystem();
+      FileSystem ns = fs.getFileSystemByPath(child.getPath());
       heap.add(new Index(new Reader(ns.makeQualified(child.getPath()), ns.getConf())));
     }
     if (!foundFinish)
@@ -151,7 +154,7 @@ public class RecoveryLogReader implements CloseableIterator<Entry<LogFileKey,Log
 
   @VisibleForTesting
   synchronized boolean next(WritableComparable<?> key, Writable val) throws IOException {
-    Index elt = (Index) heap.remove();
+    Index elt = heap.remove();
     try {
       elt.cache();
       if (elt.cached) {
@@ -169,10 +172,9 @@ public class RecoveryLogReader implements CloseableIterator<Entry<LogFileKey,Log
 
   @VisibleForTesting
   synchronized boolean seek(WritableComparable<?> key) throws IOException {
-    PriorityBuffer reheap = new PriorityBuffer(heap.size());
+    PriorityQueue<Index> reheap = new PriorityQueue<>(heap.size());
     boolean result = false;
-    for (Object obj : heap) {
-      Index index = (Index) obj;
+    for (Index index : heap) {
       try {
         WritableComparable<?> found = index.reader.getClosest(key, index.value, true);
         if (found != null && found.equals(key)) {
@@ -191,8 +193,7 @@ public class RecoveryLogReader implements CloseableIterator<Entry<LogFileKey,Log
   @Override
   public void close() throws IOException {
     IOException problem = null;
-    for (Object obj : heap) {
-      Index index = (Index) obj;
+    for (Index index : heap) {
       try {
         index.reader.close();
       } catch (IOException ex) {

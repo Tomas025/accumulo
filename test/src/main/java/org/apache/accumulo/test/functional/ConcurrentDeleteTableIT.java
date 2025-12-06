@@ -1,25 +1,27 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
-
 package org.apache.accumulo.test.functional;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -32,15 +34,17 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
+import org.apache.accumulo.core.client.Accumulo;
+import org.apache.accumulo.core.client.AccumuloClient;
 import org.apache.accumulo.core.client.AccumuloException;
 import org.apache.accumulo.core.client.AccumuloSecurityException;
 import org.apache.accumulo.core.client.BatchWriter;
-import org.apache.accumulo.core.client.BatchWriterConfig;
-import org.apache.accumulo.core.client.Connector;
 import org.apache.accumulo.core.client.MutationsRejectedException;
 import org.apache.accumulo.core.client.TableNotFoundException;
 import org.apache.accumulo.core.client.TableOfflineException;
 import org.apache.accumulo.core.client.admin.CompactionConfig;
+import org.apache.accumulo.core.client.admin.NewTableConfiguration;
+import org.apache.accumulo.core.clientImpl.ClientContext;
 import org.apache.accumulo.core.data.Mutation;
 import org.apache.accumulo.core.security.Authorizations;
 import org.apache.accumulo.harness.AccumuloClusterHarness;
@@ -49,65 +53,72 @@ import org.junit.Test;
 
 public class ConcurrentDeleteTableIT extends AccumuloClusterHarness {
 
+  @Override
+  protected int defaultTimeoutSeconds() {
+    return 7 * 60;
+  }
+
   @Test
   public void testConcurrentDeleteTablesOps() throws Exception {
-    final Connector c = getConnector();
-    String[] tables = getUniqueNames(2);
+    try (AccumuloClient c = Accumulo.newClient().from(getClientProps()).build()) {
 
-    TreeSet<Text> splits = createSplits();
+      String[] tables = getUniqueNames(2);
 
-    ExecutorService es = Executors.newFixedThreadPool(20);
+      TreeSet<Text> splits = createSplits();
+      NewTableConfiguration ntc = new NewTableConfiguration().withSplits(splits);
 
-    int count = 0;
-    for (final String table : tables) {
-      c.tableOperations().create(table);
-      c.tableOperations().addSplits(table, splits);
-      writeData(c, table);
-      if (count == 1) {
-        c.tableOperations().flush(table, null, null, true);
-      }
-      count++;
+      ExecutorService es = Executors.newFixedThreadPool(20);
 
-      int numDeleteOps = 20;
-      final CountDownLatch cdl = new CountDownLatch(numDeleteOps);
+      int count = 0;
+      for (final String table : tables) {
+        c.tableOperations().create(table, ntc);
+        writeData(c, table);
+        if (count == 1) {
+          c.tableOperations().flush(table, null, null, true);
+        }
+        count++;
 
-      List<Future<?>> futures = new ArrayList<>();
+        int numDeleteOps = 20;
+        final CountDownLatch cdl = new CountDownLatch(numDeleteOps);
 
-      for (int i = 0; i < numDeleteOps; i++) {
-        Future<?> future = es.submit(new Runnable() {
+        List<Future<?>> futures = new ArrayList<>();
 
-          @Override
-          public void run() {
-            try {
-              cdl.countDown();
-              cdl.await();
-              c.tableOperations().delete(table);
-            } catch (TableNotFoundException e) {
-              // expected
-            } catch (InterruptedException | AccumuloException | AccumuloSecurityException e) {
-              throw new RuntimeException(e);
+        for (int i = 0; i < numDeleteOps; i++) {
+          Future<?> future = es.submit(new Runnable() {
+
+            @Override
+            public void run() {
+              try {
+                cdl.countDown();
+                cdl.await();
+                c.tableOperations().delete(table);
+              } catch (TableNotFoundException e) {
+                // expected
+              } catch (InterruptedException | AccumuloException | AccumuloSecurityException e) {
+                throw new RuntimeException(e);
+              }
             }
-          }
-        });
+          });
 
-        futures.add(future);
+          futures.add(future);
+        }
+
+        for (Future<?> future : futures) {
+          future.get();
+        }
+
+        try {
+          c.createScanner(table, Authorizations.EMPTY);
+          fail("Expected table " + table + " to be gone.");
+        } catch (TableNotFoundException tnfe) {
+          // expected
+        }
+
+        FunctionalTestUtils.assertNoDanglingFateLocks((ClientContext) c, getCluster());
       }
 
-      for (Future<?> future : futures) {
-        future.get();
-      }
-
-      try {
-        c.createScanner(table, Authorizations.EMPTY);
-        fail("Expected table " + table + " to be gone.");
-      } catch (TableNotFoundException tnfe) {
-        // expected
-      }
-
-      FunctionalTestUtils.assertNoDanglingFateLocks(getConnector().getInstance(), getCluster());
+      es.shutdown();
     }
-
-    es.shutdown();
   }
 
   private TreeSet<Text> createSplits() {
@@ -120,7 +131,7 @@ public class ConcurrentDeleteTableIT extends AccumuloClusterHarness {
     return splits;
   }
 
-  private static abstract class DelayedTableOp implements Runnable {
+  private abstract static class DelayedTableOp implements Runnable {
     private CountDownLatch cdl;
 
     DelayedTableOp(CountDownLatch cdl) {
@@ -148,127 +159,125 @@ public class ConcurrentDeleteTableIT extends AccumuloClusterHarness {
 
   @Test
   public void testConcurrentFateOpsWithDelete() throws Exception {
-    final Connector c = getConnector();
-    String[] tables = getUniqueNames(2);
+    try (AccumuloClient c = Accumulo.newClient().from(getClientProps()).build()) {
+      String[] tables = getUniqueNames(2);
 
-    TreeSet<Text> splits = createSplits();
+      TreeSet<Text> splits = createSplits();
+      NewTableConfiguration ntc = new NewTableConfiguration().withSplits(splits);
 
-    int numOperations = 8;
+      int numOperations = 8;
 
-    ExecutorService es = Executors.newFixedThreadPool(numOperations);
+      ExecutorService es = Executors.newFixedThreadPool(numOperations);
 
-    int count = 0;
-    for (final String table : tables) {
-      c.tableOperations().create(table);
-      c.tableOperations().addSplits(table, splits);
-      writeData(c, table);
-      if (count == 1) {
-        c.tableOperations().flush(table, null, null, true);
-      }
-      count++;
+      int count = 0;
+      for (final String table : tables) {
+        c.tableOperations().create(table, ntc);
+        writeData(c, table);
+        if (count == 1) {
+          c.tableOperations().flush(table, null, null, true);
+        }
+        count++;
 
-      // increment this for each test
-      final CountDownLatch cdl = new CountDownLatch(numOperations);
+        // increment this for each test
+        final CountDownLatch cdl = new CountDownLatch(numOperations);
 
-      List<Future<?>> futures = new ArrayList<>();
+        List<Future<?>> futures = new ArrayList<>();
 
-      futures.add(es.submit(new Runnable() {
-        @Override
-        public void run() {
-          try {
-            cdl.countDown();
-            cdl.await();
-            c.tableOperations().delete(table);
-          } catch (TableNotFoundException | TableOfflineException e) {
-            // expected
-          } catch (InterruptedException | AccumuloException | AccumuloSecurityException e) {
-            throw new RuntimeException(e);
+        futures.add(es.submit(new Runnable() {
+          @Override
+          public void run() {
+            try {
+              cdl.countDown();
+              cdl.await();
+              c.tableOperations().delete(table);
+            } catch (TableNotFoundException | TableOfflineException e) {
+              // expected
+            } catch (InterruptedException | AccumuloException | AccumuloSecurityException e) {
+              throw new RuntimeException(e);
+            }
           }
+        }));
+
+        futures.add(es.submit(new DelayedTableOp(cdl) {
+          @Override
+          protected void doTableOp() throws Exception {
+            c.tableOperations().compact(table, new CompactionConfig());
+          }
+        }));
+
+        futures.add(es.submit(new DelayedTableOp(cdl) {
+          @Override
+          protected void doTableOp() throws Exception {
+            c.tableOperations().merge(table, null, null);
+          }
+        }));
+
+        futures.add(es.submit(new DelayedTableOp(cdl) {
+          @Override
+          protected void doTableOp() throws Exception {
+            Map<String,String> m = Collections.emptyMap();
+            Set<String> s = Collections.emptySet();
+            c.tableOperations().clone(table, table + "_clone", true, m, s);
+          }
+        }));
+
+        futures.add(es.submit(new DelayedTableOp(cdl) {
+          @Override
+          protected void doTableOp() throws Exception {
+            c.tableOperations().deleteRows(table, null, null);
+          }
+        }));
+
+        futures.add(es.submit(new DelayedTableOp(cdl) {
+          @Override
+          protected void doTableOp() throws Exception {
+            c.tableOperations().cancelCompaction(table);
+          }
+        }));
+
+        futures.add(es.submit(new DelayedTableOp(cdl) {
+          @Override
+          protected void doTableOp() throws Exception {
+            c.tableOperations().rename(table, table + "_renamed");
+          }
+        }));
+
+        futures.add(es.submit(new DelayedTableOp(cdl) {
+          @Override
+          protected void doTableOp() throws Exception {
+            c.tableOperations().offline(table);
+          }
+        }));
+
+        assertEquals(numOperations, futures.size());
+
+        for (Future<?> future : futures) {
+          future.get();
         }
-      }));
 
-      futures.add(es.submit(new DelayedTableOp(cdl) {
-        @Override
-        protected void doTableOp() throws Exception {
-          c.tableOperations().compact(table, new CompactionConfig());
+        try {
+          c.createScanner(table, Authorizations.EMPTY);
+          fail("Expected table " + table + " to be gone.");
+        } catch (TableNotFoundException tnfe) {
+          // expected
         }
-      }));
 
-      futures.add(es.submit(new DelayedTableOp(cdl) {
-        @Override
-        protected void doTableOp() throws Exception {
-          c.tableOperations().merge(table, null, null);
-        }
-      }));
-
-      futures.add(es.submit(new DelayedTableOp(cdl) {
-        @Override
-        protected void doTableOp() throws Exception {
-          Map<String,String> m = Collections.emptyMap();
-          Set<String> s = Collections.emptySet();
-          c.tableOperations().clone(table, table + "_clone", true, m, s);
-        }
-      }));
-
-      futures.add(es.submit(new DelayedTableOp(cdl) {
-        @Override
-        protected void doTableOp() throws Exception {
-          c.tableOperations().deleteRows(table, null, null);
-        }
-      }));
-
-      futures.add(es.submit(new DelayedTableOp(cdl) {
-        @Override
-        protected void doTableOp() throws Exception {
-          c.tableOperations().cancelCompaction(table);
-        }
-      }));
-
-      futures.add(es.submit(new DelayedTableOp(cdl) {
-        @Override
-        protected void doTableOp() throws Exception {
-          c.tableOperations().rename(table, table + "_renamed");
-        }
-      }));
-
-      futures.add(es.submit(new DelayedTableOp(cdl) {
-        @Override
-        protected void doTableOp() throws Exception {
-          c.tableOperations().offline(table);
-        }
-      }));
-
-      assertEquals(numOperations, futures.size());
-
-      for (Future<?> future : futures) {
-        future.get();
+        FunctionalTestUtils.assertNoDanglingFateLocks((ClientContext) c, getCluster());
       }
 
-      try {
-        c.createScanner(table, Authorizations.EMPTY);
-        fail("Expected table " + table + " to be gone.");
-      } catch (TableNotFoundException tnfe) {
-        // expected
-      }
-
-      FunctionalTestUtils.assertNoDanglingFateLocks(getConnector().getInstance(), getCluster());
+      es.shutdown();
     }
-
-    es.shutdown();
   }
 
-  private void writeData(Connector c, String table)
+  private void writeData(AccumuloClient c, String table)
       throws TableNotFoundException, MutationsRejectedException {
-    BatchWriter bw = c.createBatchWriter(table, new BatchWriterConfig());
-    try {
-      Random rand = new Random();
+    try (BatchWriter bw = c.createBatchWriter(table)) {
+      Random rand = new SecureRandom();
       for (int i = 0; i < 1000; i++) {
         Mutation m = new Mutation(String.format("%09x", rand.nextInt(100000 * 1000)));
         m.put("m", "order", "" + i);
         bw.addMutation(m);
       }
-    } finally {
-      bw.close();
     }
   }
 }

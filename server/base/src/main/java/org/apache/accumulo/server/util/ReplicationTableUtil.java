@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.server.util;
 
@@ -25,24 +27,23 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.accumulo.core.client.AccumuloClient;
 import org.apache.accumulo.core.client.AccumuloException;
 import org.apache.accumulo.core.client.AccumuloSecurityException;
-import org.apache.accumulo.core.client.Connector;
 import org.apache.accumulo.core.client.IteratorSetting;
 import org.apache.accumulo.core.client.IteratorSetting.Column;
 import org.apache.accumulo.core.client.TableNotFoundException;
 import org.apache.accumulo.core.client.admin.TableOperations;
-import org.apache.accumulo.core.client.impl.ClientContext;
-import org.apache.accumulo.core.client.impl.Credentials;
-import org.apache.accumulo.core.client.impl.Writer;
+import org.apache.accumulo.core.clientImpl.ClientContext;
+import org.apache.accumulo.core.clientImpl.Credentials;
+import org.apache.accumulo.core.clientImpl.Writer;
 import org.apache.accumulo.core.conf.Property;
 import org.apache.accumulo.core.data.Mutation;
 import org.apache.accumulo.core.data.Value;
-import org.apache.accumulo.core.data.impl.KeyExtent;
+import org.apache.accumulo.core.dataImpl.KeyExtent;
 import org.apache.accumulo.core.iterators.Combiner;
 import org.apache.accumulo.core.iterators.IteratorUtil.IteratorScope;
 import org.apache.accumulo.core.metadata.MetadataTable;
-import org.apache.accumulo.core.metadata.schema.MetadataSchema;
 import org.apache.accumulo.core.metadata.schema.MetadataSchema.ReplicationSection;
 import org.apache.accumulo.core.protobuf.ProtobufUtil;
 import org.apache.accumulo.core.tabletserver.thrift.ConstraintViolationException;
@@ -77,30 +78,22 @@ public class ReplicationTableUtil {
    * @param writer
    *          A Writer to use for the given credentials
    */
-  synchronized static void addWriter(Credentials creds, Writer writer) {
+  static synchronized void addWriter(Credentials creds, Writer writer) {
     writers.put(creds, writer);
   }
 
-  synchronized static Writer getWriter(ClientContext context) {
+  static synchronized Writer getWriter(ClientContext context) {
     Writer replicationTable = writers.get(context.getCredentials());
     if (replicationTable == null) {
-      Connector conn;
-      try {
-        conn = context.getConnector();
-      } catch (AccumuloException | AccumuloSecurityException e) {
-        throw new RuntimeException(e);
-      }
-
-      configureMetadataTable(conn, MetadataTable.NAME);
-
+      configureMetadataTable(context, MetadataTable.NAME);
       replicationTable = new Writer(context, MetadataTable.ID);
       writers.put(context.getCredentials(), replicationTable);
     }
     return replicationTable;
   }
 
-  public synchronized static void configureMetadataTable(Connector conn, String tableName) {
-    TableOperations tops = conn.tableOperations();
+  public synchronized static void configureMetadataTable(AccumuloClient client, String tableName) {
+    TableOperations tops = client.tableOperations();
     Map<String,EnumSet<IteratorScope>> iterators = null;
     try {
       iterators = tops.listIterators(tableName);
@@ -112,8 +105,7 @@ public class ReplicationTableUtil {
       // Set our combiner and combine all columns
       // Need to set the combiner beneath versioning since we don't want to turn it off
       IteratorSetting setting = new IteratorSetting(9, COMBINER_NAME, StatusCombiner.class);
-      Combiner.setColumns(setting,
-          Collections.singletonList(new Column(MetadataSchema.ReplicationSection.COLF)));
+      Combiner.setColumns(setting, Collections.singletonList(new Column(ReplicationSection.COLF)));
       try {
         tops.attachIterator(tableName, setting);
       } catch (AccumuloSecurityException | AccumuloException | TableNotFoundException e) {
@@ -160,19 +152,14 @@ public class ReplicationTableUtil {
   /**
    * Write the given Mutation to the replication table.
    */
-  static void update(ClientContext context, Mutation m, KeyExtent extent) {
+  static void update(ClientContext context, Mutation m) {
     Writer t = getWriter(context);
     while (true) {
       try {
         t.update(m);
         return;
-      } catch (AccumuloException e) {
-        log.error(e.toString(), e);
-      } catch (AccumuloSecurityException e) {
-        log.error(e.toString(), e);
-      } catch (ConstraintViolationException e) {
-        log.error(e.toString(), e);
-      } catch (TableNotFoundException e) {
+      } catch (AccumuloException | TableNotFoundException | ConstraintViolationException
+          | AccumuloSecurityException e) {
         log.error(e.toString(), e);
       }
       sleepUninterruptibly(1, TimeUnit.SECONDS);
@@ -185,25 +172,24 @@ public class ReplicationTableUtil {
   public static void updateFiles(ClientContext context, KeyExtent extent, String file,
       Status stat) {
     if (log.isDebugEnabled()) {
-      log.debug("Updating replication status for " + extent + " with " + file + " using "
-          + ProtobufUtil.toString(stat));
+      log.debug("Updating replication status for {} with {} using {}", extent, file,
+          ProtobufUtil.toString(stat));
     }
     // TODO could use batch writer, would need to handle failure and retry like update does -
     // ACCUMULO-1294
 
     Value v = ProtobufUtil.toValue(stat);
-    update(context, createUpdateMutation(new Path(file), v, extent), extent);
+    update(context, createUpdateMutation(new Path(file), v, extent));
   }
 
   static Mutation createUpdateMutation(Path file, Value v, KeyExtent extent) {
     // Need to normalize the file path so we can assuredly find it again later
-    return createUpdateMutation(new Text(ReplicationSection.getRowPrefix() + file.toString()), v,
-        extent);
+    return createUpdateMutation(new Text(ReplicationSection.getRowPrefix() + file), v, extent);
   }
 
   private static Mutation createUpdateMutation(Text row, Value v, KeyExtent extent) {
     Mutation m = new Mutation(row);
-    m.put(MetadataSchema.ReplicationSection.COLF, new Text(extent.getTableId()), v);
+    m.put(ReplicationSection.COLF, new Text(extent.tableId().canonical()), v);
     return m;
   }
 }

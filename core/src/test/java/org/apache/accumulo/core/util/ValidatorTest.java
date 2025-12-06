@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.core.util;
 
@@ -32,7 +34,7 @@ public class ValidatorTest {
     }
 
     @Override
-    public boolean apply(String argument) {
+    public boolean test(String argument) {
       return s.equals(argument);
     }
   }
@@ -45,7 +47,7 @@ public class ValidatorTest {
     }
 
     @Override
-    public boolean apply(String argument) {
+    public boolean test(String argument) {
       return (argument != null && argument.matches(ps));
     }
   }
@@ -77,24 +79,24 @@ public class ValidatorTest {
   @Test
   public void testAnd() {
     Validator<String> vand = v3.and(v);
-    assertTrue(vand.apply("correct"));
-    assertFalse(vand.apply("righto"));
-    assertFalse(vand.apply("coriander"));
+    assertTrue(vand.test("correct"));
+    assertFalse(vand.test("righto"));
+    assertFalse(vand.test("coriander"));
   }
 
   @Test
   public void testOr() {
     Validator<String> vor = v.or(v2);
-    assertTrue(vor.apply("correct"));
-    assertTrue(vor.apply("righto"));
-    assertFalse(vor.apply("coriander"));
+    assertTrue(vor.test("correct"));
+    assertTrue(vor.test("righto"));
+    assertFalse(vor.test("coriander"));
   }
 
   @Test
   public void testNot() {
     Validator<String> vnot = v3.not();
-    assertFalse(vnot.apply("correct"));
-    assertFalse(vnot.apply("coriander"));
-    assertTrue(vnot.apply("righto"));
+    assertFalse(vnot.test("correct"));
+    assertFalse(vnot.test("coriander"));
+    assertTrue(vnot.test("righto"));
   }
 }

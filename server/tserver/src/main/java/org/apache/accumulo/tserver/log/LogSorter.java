@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.tserver.log;
 
@@ -29,18 +31,16 @@ import java.util.Map.Entry;
 import java.util.concurrent.ThreadPoolExecutor;
 
 import org.apache.accumulo.core.Constants;
-import org.apache.accumulo.core.client.Instance;
 import org.apache.accumulo.core.conf.AccumuloConfiguration;
 import org.apache.accumulo.core.conf.Property;
 import org.apache.accumulo.core.master.thrift.RecoveryStatus;
 import org.apache.accumulo.core.util.Pair;
-import org.apache.accumulo.core.util.SimpleThreadPool;
-import org.apache.accumulo.core.zookeeper.ZooUtil;
+import org.apache.accumulo.core.util.threads.ThreadPools;
+import org.apache.accumulo.server.ServerContext;
 import org.apache.accumulo.server.fs.VolumeManager;
 import org.apache.accumulo.server.log.SortedLogState;
 import org.apache.accumulo.server.zookeeper.DistributedWorkQueue;
 import org.apache.accumulo.server.zookeeper.DistributedWorkQueue.Processor;
-import org.apache.accumulo.tserver.log.DfsLogger.DFSLoggerInputStreams;
 import org.apache.accumulo.tserver.log.DfsLogger.LogHeaderIncompleteException;
 import org.apache.accumulo.tserver.logger.LogFileKey;
 import org.apache.accumulo.tserver.logger.LogFileValue;
@@ -52,17 +52,12 @@ import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- *
- */
 public class LogSorter {
 
   private static final Logger log = LoggerFactory.getLogger(LogSorter.class);
-  VolumeManager fs;
   AccumuloConfiguration conf;
 
-  private final Map<String,LogProcessor> currentWork =
-      Collections.synchronizedMap(new HashMap<String,LogProcessor>());
+  private final Map<String,LogProcessor> currentWork = Collections.synchronizedMap(new HashMap<>());
 
   class LogProcessor implements Processor {
 
@@ -84,7 +79,7 @@ public class LogSorter {
       String src = parts[0];
       String dest = parts[1];
       String sortId = new Path(src).getName();
-      log.debug("Sorting " + src + " to " + dest + " using sortId " + sortId);
+      log.debug("Sorting {} to {} using sortId {}", src, dest, sortId);
 
       synchronized (currentWork) {
         if (currentWork.containsKey(sortId))
@@ -106,6 +101,8 @@ public class LogSorter {
         sortStart = System.currentTimeMillis();
       }
 
+      VolumeManager fs = context.getVolumeManager();
+
       String formerThreadName = Thread.currentThread().getName();
       int part = 0;
       try {
@@ -115,52 +112,47 @@ public class LogSorter {
           return;
         }
 
-        log.info("Copying " + srcPath + " to " + destPath);
+        log.info("Copying {} to {}", srcPath, destPath);
         // the following call does not throw an exception if the file/dir does not exist
         fs.deleteRecursively(new Path(destPath));
 
-        try (final FSDataInputStream fsinput = fs.open(srcPath)) {
-          DFSLoggerInputStreams inputStreams;
-          try {
-            inputStreams = DfsLogger.readHeaderAndReturnStream(fsinput, conf);
-          } catch (LogHeaderIncompleteException e) {
-            log.warn("Could not read header from write-ahead log " + srcPath + ". Not sorting.");
-            // Creating a 'finished' marker will cause recovery to proceed normally and the
-            // empty file will be correctly ignored downstream.
-            fs.mkdirs(new Path(destPath));
-            writeBuffer(destPath, Collections.<Pair<LogFileKey,LogFileValue>>emptyList(), part++);
-            fs.create(SortedLogState.getFinishedMarkerPath(destPath)).close();
-            return;
-          }
-
-          this.input = inputStreams.getOriginalInput();
-          this.decryptingInput = inputStreams.getDecryptingInputStream();
-
-          final long bufferSize = conf.getMemoryInBytes(Property.TSERV_SORT_BUFFER_SIZE);
-          Thread.currentThread().setName("Sorting " + name + " for recovery");
-          while (true) {
-            final ArrayList<Pair<LogFileKey,LogFileValue>> buffer = new ArrayList<>();
-            try {
-              long start = input.getPos();
-              while (input.getPos() - start < bufferSize) {
-                LogFileKey key = new LogFileKey();
-                LogFileValue value = new LogFileValue();
-                key.readFields(decryptingInput);
-                value.readFields(decryptingInput);
-                buffer.add(new Pair<>(key, value));
-              }
-              writeBuffer(destPath, buffer, part++);
-              buffer.clear();
-            } catch (EOFException ex) {
-              writeBuffer(destPath, buffer, part++);
-              break;
-            }
-          }
-          fs.create(new Path(destPath, "finished")).close();
-          log.info("Finished log sort " + name + " " + getBytesCopied() + " bytes " + part
-              + " parts in " + getSortTime() + "ms");
+        input = fs.open(srcPath);
+        try {
+          decryptingInput = DfsLogger.getDecryptingStream(input, conf);
+        } catch (LogHeaderIncompleteException e) {
+          log.warn("Could not read header from write-ahead log {}. Not sorting.", srcPath);
+          // Creating a 'finished' marker will cause recovery to proceed normally and the
+          // empty file will be correctly ignored downstream.
+          fs.mkdirs(new Path(destPath));
+          writeBuffer(destPath, Collections.emptyList(), part++);
+          fs.create(SortedLogState.getFinishedMarkerPath(destPath)).close();
+          return;
         }
-      } catch (Throwable t) {
+
+        final long bufferSize = conf.getAsBytes(Property.TSERV_SORT_BUFFER_SIZE);
+        Thread.currentThread().setName("Sorting " + name + " for recovery");
+        while (true) {
+          final ArrayList<Pair<LogFileKey,LogFileValue>> buffer = new ArrayList<>();
+          try {
+            long start = input.getPos();
+            while (input.getPos() - start < bufferSize) {
+              LogFileKey key = new LogFileKey();
+              LogFileValue value = new LogFileValue();
+              key.readFields(decryptingInput);
+              value.readFields(decryptingInput);
+              buffer.add(new Pair<>(key, value));
+            }
+            writeBuffer(destPath, buffer, part++);
+            buffer.clear();
+          } catch (EOFException ex) {
+            writeBuffer(destPath, buffer, part++);
+            break;
+          }
+        }
+        fs.create(new Path(destPath, "finished")).close();
+        log.info("Finished log sort {} {} bytes {} parts in {}ms", name, getBytesCopied(), part,
+            getSortTime());
+      } catch (Exception t) {
         try {
           // parent dir may not exist
           fs.mkdirs(new Path(destPath));
@@ -168,7 +160,7 @@ public class LogSorter {
         } catch (IOException e) {
           log.error("Error creating failed flag file " + name, e);
         }
-        log.error("Caught throwable", t);
+        log.error("Caught exception", t);
       } finally {
         Thread.currentThread().setName(formerThreadName);
         try {
@@ -185,29 +177,22 @@ public class LogSorter {
     private void writeBuffer(String destPath, List<Pair<LogFileKey,LogFileValue>> buffer, int part)
         throws IOException {
       Path path = new Path(destPath, String.format("part-r-%05d", part));
-      FileSystem ns = fs.getVolumeByPath(path).getFileSystem();
+      FileSystem ns = context.getVolumeManager().getFileSystemByPath(path);
 
-      MapFile.Writer output = new MapFile.Writer(ns.getConf(), ns.makeQualified(path),
-          MapFile.Writer.keyClass(LogFileKey.class), MapFile.Writer.valueClass(LogFileValue.class));
-      try {
-        Collections.sort(buffer, new Comparator<Pair<LogFileKey,LogFileValue>>() {
-          @Override
-          public int compare(Pair<LogFileKey,LogFileValue> o1, Pair<LogFileKey,LogFileValue> o2) {
-            return o1.getFirst().compareTo(o2.getFirst());
-          }
-        });
+      try (MapFile.Writer output = new MapFile.Writer(ns.getConf(), ns.makeQualified(path),
+          MapFile.Writer.keyClass(LogFileKey.class),
+          MapFile.Writer.valueClass(LogFileValue.class))) {
+        buffer.sort(Comparator.comparing(Pair::getFirst));
         for (Pair<LogFileKey,LogFileValue> entry : buffer) {
           output.append(entry.getFirst(), entry.getSecond());
         }
-      } finally {
-        output.close();
       }
     }
 
     synchronized void close() throws IOException {
       // If we receive an empty or malformed-header WAL, we won't
       // have input streams that need closing. Avoid the NPE.
-      if (null != input) {
+      if (input != null) {
         bytesCopied = input.getPos();
         input.close();
         decryptingInput.close();
@@ -230,20 +215,22 @@ public class LogSorter {
   }
 
   ThreadPoolExecutor threadPool;
-  private final Instance instance;
+  private final ServerContext context;
+  private double walBlockSize;
 
-  public LogSorter(Instance instance, VolumeManager fs, AccumuloConfiguration conf) {
-    this.instance = instance;
-    this.fs = fs;
+  public LogSorter(ServerContext context, AccumuloConfiguration conf) {
+    this.context = context;
     this.conf = conf;
     int threadPoolSize = conf.getCount(Property.TSERV_RECOVERY_MAX_CONCURRENT);
-    this.threadPool = new SimpleThreadPool(threadPoolSize, this.getClass().getName());
+    this.threadPool =
+        ThreadPools.createFixedThreadPool(threadPoolSize, this.getClass().getName(), false);
+    this.walBlockSize = DfsLogger.getWalBlockSize(conf);
   }
 
   public void startWatchingForRecoveryLogs(ThreadPoolExecutor distWorkQThreadPool)
       throws KeeperException, InterruptedException {
     this.threadPool = distWorkQThreadPool;
-    new DistributedWorkQueue(ZooUtil.getRoot(instance) + Constants.ZRECOVERY, conf)
+    new DistributedWorkQueue(context.getZooKeeperRoot() + Constants.ZRECOVERY, conf)
         .startProcessing(new LogProcessor(), this.threadPool);
   }
 
@@ -254,8 +241,9 @@ public class LogSorter {
         RecoveryStatus status = new RecoveryStatus();
         status.name = entries.getKey();
         try {
-          status.progress = entries.getValue().getBytesCopied()
-              / (0.0 + conf.getMemoryInBytes(Property.TSERV_WALOG_MAX_SIZE));
+          double progress = entries.getValue().getBytesCopied() / walBlockSize;
+          // to be sure progress does not exceed 100%
+          status.progress = Math.min(progress, 99.9);
         } catch (IOException ex) {
           log.warn("Error getting bytes read");
         }

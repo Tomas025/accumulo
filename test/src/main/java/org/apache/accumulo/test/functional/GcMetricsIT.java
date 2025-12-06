@@ -20,7 +20,6 @@ package org.apache.accumulo.test.functional;
 
 import static java.util.stream.Collectors.toMap;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assume.assumeFalse;
 import static org.junit.Assume.assumeTrue;
 
 import java.util.Collections;
@@ -34,7 +33,7 @@ import java.util.stream.Stream;
 
 import org.apache.accumulo.core.conf.Property;
 import org.apache.accumulo.gc.metrics.GcMetrics;
-import org.apache.accumulo.minicluster.impl.MiniAccumuloConfigImpl;
+import org.apache.accumulo.miniclusterImpl.MiniAccumuloConfigImpl;
 import org.apache.accumulo.test.metrics.MetricsFileTailer;
 import org.apache.hadoop.conf.Configuration;
 import org.junit.After;
@@ -86,8 +85,6 @@ public class GcMetricsIT extends ConfigurableMacBase {
   public void gcMetricsPublished() throws Exception {
     assumeTrue("gc metrics are disabled with GC_METRICS_ENABLED=false",
         cluster.getSiteConfiguration().getBoolean(Property.GC_METRICS_ENABLED));
-    assumeFalse("gc metrics are disabled because GENERAL_LEGACY_METRICS=true",
-        cluster.getSiteConfiguration().getBoolean(Property.GENERAL_LEGACY_METRICS));
 
     // uncomment for manual jmx / jconsole validation - not for automated testing
     // Thread.sleep(320_000);

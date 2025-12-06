@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.harness;
 
@@ -27,6 +29,8 @@ import org.junit.rules.TestName;
 import org.junit.rules.Timeout;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 
 /**
  * Methods, setup and/or infrastructure which are common to any Accumulo integration test.
@@ -55,11 +59,13 @@ public class AccumuloITBase {
    *          exist
    * @return the new directory (is not created)
    */
+  @SuppressFBWarnings(value = "PATH_TRAVERSAL_IN", justification = "path provided by test")
   public static File getSslDir(File baseDir) {
     assertTrue(baseDir.exists() && baseDir.isDirectory());
     return new File(baseDir.getParentFile(), baseDir.getName() + "-ssl");
   }
 
+  @SuppressFBWarnings(value = "PATH_TRAVERSAL_IN", justification = "path provided by test")
   public static File createTestDir(String name) {
     File baseDir = new File(System.getProperty("user.dir") + "/target/mini-tests");
     assertTrue(baseDir.mkdirs() || baseDir.isDirectory());
@@ -76,7 +82,7 @@ public class AccumuloITBase {
    * failed.
    *
    * Note that this provides a upper bound on test times, even in the presence of Test annotations
-   * with a timeout. That is, the Test annotatation can make the timing tighter but will not be able
+   * with a timeout. That is, the Test annotation can make the timing tighter but will not be able
    * to allow a timeout that takes longer.
    *
    * Defaults to no timeout and can be changed via two mechanisms
@@ -109,6 +115,6 @@ public class AccumuloITBase {
    * time to wait per-method before declaring a timeout, in seconds.
    */
   protected int defaultTimeoutSeconds() {
-    return 0;
+    return 600;
   }
 }

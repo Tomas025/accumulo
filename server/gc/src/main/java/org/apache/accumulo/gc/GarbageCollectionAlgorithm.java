@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.gc;
 
@@ -27,32 +29,24 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.stream.Stream;
 
 import org.apache.accumulo.core.Constants;
-import org.apache.accumulo.core.client.AccumuloException;
-import org.apache.accumulo.core.client.AccumuloSecurityException;
 import org.apache.accumulo.core.client.TableNotFoundException;
-import org.apache.accumulo.core.data.Key;
-import org.apache.accumulo.core.data.Value;
-import org.apache.accumulo.core.data.impl.KeyExtent;
-import org.apache.accumulo.core.metadata.schema.MetadataSchema.TabletsSection;
-import org.apache.accumulo.core.metadata.schema.MetadataSchema.TabletsSection.DataFileColumnFamily;
-import org.apache.accumulo.core.metadata.schema.MetadataSchema.TabletsSection.ScanFileColumnFamily;
-import org.apache.accumulo.core.trace.Span;
-import org.apache.accumulo.core.trace.Trace;
+import org.apache.accumulo.core.data.TableId;
+import org.apache.accumulo.core.metadata.schema.MetadataSchema.TabletsSection.ServerColumnFamily;
+import org.apache.accumulo.gc.GarbageCollectionEnvironment.Reference;
 import org.apache.accumulo.server.ServerConstants;
 import org.apache.accumulo.server.replication.StatusUtil;
 import org.apache.accumulo.server.replication.proto.Replication.Status;
-import org.apache.hadoop.io.Text;
+import org.apache.htrace.Trace;
+import org.apache.htrace.TraceScope;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.Iterators;
 import com.google.common.collect.PeekingIterator;
 
-/**
- *
- */
 public class GarbageCollectionAlgorithm {
 
   private static final Logger log = LoggerFactory.getLogger(GarbageCollectionAlgorithm.class);
@@ -124,7 +118,7 @@ public class GarbageCollectionAlgorithm {
       try {
         relPath = makeRelative(candidate, 0);
       } catch (IllegalArgumentException iae) {
-        log.warn("Ignoring invalid deletion candidate " + candidate);
+        log.warn("Ignoring invalid deletion candidate {}", candidate);
         continue;
       }
       ret.put(relPath, candidate);
@@ -134,8 +128,7 @@ public class GarbageCollectionAlgorithm {
   }
 
   private void confirmDeletes(GarbageCollectionEnvironment gce,
-      SortedMap<String,String> candidateMap)
-      throws TableNotFoundException, AccumuloException, AccumuloSecurityException {
+      SortedMap<String,String> candidateMap) throws TableNotFoundException {
     boolean checkForBulkProcessingFiles = false;
     Iterator<String> relativePaths = candidateMap.keySet().iterator();
     while (!checkForBulkProcessingFiles && relativePaths.hasNext())
@@ -143,50 +136,58 @@ public class GarbageCollectionAlgorithm {
           relativePaths.next().toLowerCase(Locale.ENGLISH).contains(Constants.BULK_PREFIX);
 
     if (checkForBulkProcessingFiles) {
-      Iterator<String> blipiter = gce.getBlipIterator();
+      try (Stream<String> blipStream = gce.getBlipPaths()) {
+        Iterator<String> blipiter = blipStream.iterator();
 
-      // WARNING: This block is IMPORTANT
-      // You MUST REMOVE candidates that are in the same folder as a bulk
-      // processing flag!
+        // WARNING: This block is IMPORTANT
+        // You MUST REMOVE candidates that are in the same folder as a bulk
+        // processing flag!
 
-      while (blipiter.hasNext()) {
-        String blipPath = blipiter.next();
-        blipPath = makeRelative(blipPath, 2);
+        while (blipiter.hasNext()) {
+          String blipPath = blipiter.next();
+          blipPath = makeRelative(blipPath, 2);
 
-        Iterator<String> tailIter = candidateMap.tailMap(blipPath).keySet().iterator();
+          Iterator<String> tailIter = candidateMap.tailMap(blipPath).keySet().iterator();
 
-        int count = 0;
+          int count = 0;
 
-        while (tailIter.hasNext()) {
-          if (tailIter.next().startsWith(blipPath)) {
-            count++;
-            tailIter.remove();
-          } else {
-            break;
+          while (tailIter.hasNext()) {
+            if (tailIter.next().startsWith(blipPath)) {
+              count++;
+              tailIter.remove();
+            } else {
+              break;
+            }
           }
+
+          if (count > 0)
+            log.debug("Folder has bulk processing flag: {}", blipPath);
         }
-
-        if (count > 0)
-          log.debug("Folder has bulk processing flag: " + blipPath);
       }
-
     }
 
-    Iterator<Entry<Key,Value>> iter = gce.getReferenceIterator();
+    Iterator<Reference> iter = gce.getReferences().iterator();
     while (iter.hasNext()) {
-      Entry<Key,Value> entry = iter.next();
-      Key key = entry.getKey();
-      Text cft = key.getColumnFamily();
+      Reference ref = iter.next();
 
-      if (cft.equals(DataFileColumnFamily.NAME) || cft.equals(ScanFileColumnFamily.NAME)) {
-        String cq = key.getColumnQualifier().toString();
+      if (ref.isDir) {
+        String tableID = ref.id.toString();
+        String dirName = ref.ref;
+        ServerColumnFamily.validateDirCol(dirName);
 
-        String reference = cq;
-        if (cq.startsWith("/")) {
-          String tableID = new String(KeyExtent.tableOfMetadataRow(key.getRow()));
-          reference = "/" + tableID + cq;
-        } else if (!cq.contains(":") && !cq.startsWith("../")) {
-          throw new RuntimeException("Bad file reference " + cq);
+        String dir = "/" + tableID + "/" + dirName;
+
+        dir = makeRelative(dir, 2);
+
+        if (candidateMap.remove(dir) != null)
+          log.debug("Candidate was still in use: {}", dir);
+      } else {
+
+        String reference = ref.ref;
+        if (reference.startsWith("/")) {
+          reference = "/" + ref.id + reference;
+        } else if (!reference.contains(":") && !reference.startsWith("../")) {
+          throw new RuntimeException("Bad file reference " + reference);
         }
 
         reference = makeRelative(reference, 3);
@@ -194,28 +195,13 @@ public class GarbageCollectionAlgorithm {
         // WARNING: This line is EXTREMELY IMPORTANT.
         // You MUST REMOVE candidates that are still in use
         if (candidateMap.remove(reference) != null)
-          log.debug("Candidate was still in use: " + reference);
+          log.debug("Candidate was still in use: {}", reference);
 
         String dir = reference.substring(0, reference.lastIndexOf('/'));
         if (candidateMap.remove(dir) != null)
-          log.debug("Candidate was still in use: " + reference);
+          log.debug("Candidate was still in use: {}", reference);
 
-      } else if (TabletsSection.ServerColumnFamily.DIRECTORY_COLUMN.hasColumns(key)) {
-        String tableID = new String(KeyExtent.tableOfMetadataRow(key.getRow()));
-        String dir = entry.getValue().toString();
-        if (!dir.contains(":")) {
-          if (!dir.startsWith("/"))
-            throw new RuntimeException("Bad directory " + dir);
-          dir = "/" + tableID + dir;
-        }
-
-        dir = makeRelative(dir, 2);
-
-        if (candidateMap.remove(dir) != null)
-          log.debug("Candidate was still in use: " + dir);
-      } else
-        throw new RuntimeException(
-            "Scanner over metadata table returned unexpected column : " + entry.getKey());
+      }
     }
 
     confirmDeletesFromReplication(gce.getReplicationNeededIterator(),
@@ -257,67 +243,54 @@ public class GarbageCollectionAlgorithm {
 
   private void cleanUpDeletedTableDirs(GarbageCollectionEnvironment gce,
       SortedMap<String,String> candidateMap) throws IOException {
-    HashSet<String> tableIdsWithDeletes = new HashSet<>();
+    HashSet<TableId> tableIdsWithDeletes = new HashSet<>();
 
     // find the table ids that had dirs deleted
     for (String delete : candidateMap.keySet()) {
       String[] tokens = delete.split("/");
       if (tokens.length == 2) {
         // its a directory
-        String tableId = delete.split("/")[0];
+        TableId tableId = TableId.of(delete.split("/")[0]);
         tableIdsWithDeletes.add(tableId);
       }
     }
 
-    Set<String> tableIdsInZookeeper = gce.getTableIDs();
+    Set<TableId> tableIdsInZookeeper = gce.getTableIDs();
 
     tableIdsWithDeletes.removeAll(tableIdsInZookeeper);
 
     // tableIdsWithDeletes should now contain the set of deleted tables that had dirs deleted
 
-    for (String delTableId : tableIdsWithDeletes) {
+    for (TableId delTableId : tableIdsWithDeletes) {
       gce.deleteTableDirIfEmpty(delTableId);
     }
 
   }
 
   private boolean getCandidates(GarbageCollectionEnvironment gce, String lastCandidate,
-      List<String> candidates)
-      throws TableNotFoundException, AccumuloException, AccumuloSecurityException {
-    Span candidatesSpan = Trace.start("getCandidates");
-    try {
+      List<String> candidates) throws TableNotFoundException {
+    try (TraceScope candidatesSpan = Trace.startSpan("getCandidates")) {
       return gce.getCandidates(lastCandidate, candidates);
-    } finally {
-      candidatesSpan.stop();
     }
   }
 
   private void confirmDeletesTrace(GarbageCollectionEnvironment gce,
-      SortedMap<String,String> candidateMap)
-      throws TableNotFoundException, AccumuloException, AccumuloSecurityException {
-    Span confirmDeletesSpan = Trace.start("confirmDeletes");
-    try {
+      SortedMap<String,String> candidateMap) throws TableNotFoundException {
+    try (TraceScope confirmDeletesSpan = Trace.startSpan("confirmDeletes")) {
       confirmDeletes(gce, candidateMap);
-    } finally {
-      confirmDeletesSpan.stop();
     }
   }
 
   private void deleteConfirmed(GarbageCollectionEnvironment gce,
-      SortedMap<String,String> candidateMap)
-      throws IOException, AccumuloException, AccumuloSecurityException, TableNotFoundException {
-    Span deleteSpan = Trace.start("deleteFiles");
-    try {
+      SortedMap<String,String> candidateMap) throws IOException, TableNotFoundException {
+    try (TraceScope deleteSpan = Trace.startSpan("deleteFiles")) {
       gce.delete(candidateMap);
-    } finally {
-      deleteSpan.stop();
     }
 
     cleanUpDeletedTableDirs(gce, candidateMap);
   }
 
-  public void collect(GarbageCollectionEnvironment gce)
-      throws TableNotFoundException, AccumuloException, AccumuloSecurityException, IOException {
+  public void collect(GarbageCollectionEnvironment gce) throws TableNotFoundException, IOException {
 
     String lastCandidate = "";
 
@@ -327,7 +300,7 @@ public class GarbageCollectionAlgorithm {
 
       outOfMemory = getCandidates(gce, lastCandidate, candidates);
 
-      if (candidates.size() == 0)
+      if (candidates.isEmpty())
         break;
       else
         lastCandidate = candidates.get(candidates.size() - 1);

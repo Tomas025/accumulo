@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.core.file.rfile;
 
@@ -24,12 +26,14 @@ import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 import java.util.Random;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -37,6 +41,9 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.accumulo.core.client.sample.Sampler;
 import org.apache.accumulo.core.conf.AccumuloConfiguration;
+import org.apache.accumulo.core.conf.DefaultConfiguration;
+import org.apache.accumulo.core.crypto.CryptoServiceFactory;
+import org.apache.accumulo.core.crypto.CryptoServiceFactory.ClassloaderType;
 import org.apache.accumulo.core.data.ArrayByteSequence;
 import org.apache.accumulo.core.data.ByteSequence;
 import org.apache.accumulo.core.data.Key;
@@ -44,27 +51,31 @@ import org.apache.accumulo.core.data.Range;
 import org.apache.accumulo.core.data.Value;
 import org.apache.accumulo.core.file.FileSKVIterator;
 import org.apache.accumulo.core.file.blockfile.impl.CachableBlockFile;
+import org.apache.accumulo.core.file.blockfile.impl.CachableBlockFile.CachableBuilder;
 import org.apache.accumulo.core.file.rfile.RFile.Reader;
-import org.apache.accumulo.core.file.streams.PositionedOutputs;
+import org.apache.accumulo.core.file.rfile.bcfile.BCFile;
 import org.apache.accumulo.core.iterators.SortedKeyValueIterator;
-import org.apache.accumulo.core.iterators.system.ColumnFamilySkippingIterator;
+import org.apache.accumulo.core.iteratorsImpl.system.ColumnFamilySkippingIterator;
 import org.apache.accumulo.core.sample.impl.SamplerConfigurationImpl;
 import org.apache.accumulo.core.sample.impl.SamplerFactory;
-import org.apache.accumulo.core.util.CachedConfiguration;
-import org.apache.accumulo.core.util.NamingThreadFactory;
-import org.apache.commons.lang.mutable.MutableInt;
+import org.apache.accumulo.core.util.threads.ThreadPools;
+import org.apache.commons.lang3.mutable.MutableInt;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.log4j.Logger;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+
+@SuppressFBWarnings(value = "PATH_TRAVERSAL_IN", justification = "paths not set by user input")
 public class MultiThreadedRFileTest {
 
-  private static final Logger LOG = Logger.getLogger(MultiThreadedRFileTest.class);
+  private static final Logger LOG = LoggerFactory.getLogger(MultiThreadedRFileTest.class);
   private static final Collection<ByteSequence> EMPTY_COL_FAMS = new ArrayList<>();
 
   @Rule
@@ -77,16 +88,18 @@ public class MultiThreadedRFileTest {
     if (indexIter.hasTop()) {
       Key lastKey = new Key(indexIter.getTopKey());
 
-      if (reader.getFirstKey().compareTo(lastKey) > 0)
+      if (reader.getFirstKey().compareTo(lastKey) > 0) {
         throw new RuntimeException(
             "First key out of order " + reader.getFirstKey() + " " + lastKey);
+      }
 
       indexIter.next();
 
       while (indexIter.hasTop()) {
-        if (lastKey.compareTo(indexIter.getTopKey()) > 0)
+        if (lastKey.compareTo(indexIter.getTopKey()) > 0) {
           throw new RuntimeException(
               "Indext out of order " + lastKey + " " + indexIter.getTopKey());
+        }
 
         lastKey = new Key(indexIter.getTopKey());
         indexIter.next();
@@ -101,7 +114,7 @@ public class MultiThreadedRFileTest {
 
   public static class TestRFile {
 
-    private Configuration conf = CachedConfiguration.getInstance();
+    private Configuration conf = new Configuration();
     public RFile.Writer writer;
     private FSDataOutputStream dos;
     private AccumuloConfiguration accumuloConfiguration;
@@ -112,14 +125,15 @@ public class MultiThreadedRFileTest {
 
     public TestRFile(AccumuloConfiguration accumuloConfiguration) {
       this.accumuloConfiguration = accumuloConfiguration;
-      if (this.accumuloConfiguration == null)
-        this.accumuloConfiguration = AccumuloConfiguration.getDefaultConfiguration();
+      if (this.accumuloConfiguration == null) {
+        this.accumuloConfiguration = DefaultConfiguration.getInstance();
+      }
     }
 
     public void close() throws IOException {
       if (rfile != null) {
         FileSystem fs = FileSystem.newInstance(conf);
-        Path path = new Path("file://" + rfile.toString());
+        Path path = new Path("file://" + rfile);
         fs.delete(path, false);
       }
     }
@@ -144,10 +158,10 @@ public class MultiThreadedRFileTest {
         rfile = File.createTempFile("TestRFile", ".rf");
       }
       FileSystem fs = FileSystem.newInstance(conf);
-      Path path = new Path("file://" + rfile.toString());
+      Path path = new Path("file://" + rfile);
       dos = fs.create(path, true);
-      CachableBlockFile.Writer _cbw = new CachableBlockFile.Writer(PositionedOutputs.wrap(dos),
-          "gz", conf, accumuloConfiguration);
+      BCFile.Writer _cbw = new BCFile.Writer(dos, null, "gz", conf,
+          CryptoServiceFactory.newInstance(accumuloConfiguration, ClassloaderType.JAVA));
       SamplerConfigurationImpl samplerConfig =
           SamplerConfigurationImpl.newSamplerConfig(accumuloConfiguration);
       Sampler sampler = null;
@@ -156,12 +170,9 @@ public class MultiThreadedRFileTest {
       }
       writer = new RFile.Writer(_cbw, 1000, 1000, samplerConfig, sampler);
 
-      if (startDLG)
+      if (startDLG) {
         writer.startDefaultLocalityGroup();
-    }
-
-    public void openWriter() throws IOException {
-      openWriter(true);
+      }
     }
 
     public void closeWriter() throws IOException {
@@ -176,12 +187,13 @@ public class MultiThreadedRFileTest {
 
     public void openReader() throws IOException {
       FileSystem fs = FileSystem.newInstance(conf);
-      Path path = new Path("file://" + rfile.toString());
+      Path path = new Path("file://" + rfile);
+      AccumuloConfiguration defaultConf = DefaultConfiguration.getInstance();
 
       // the caches used to obfuscate the multithreaded issues
-      CachableBlockFile.Reader _cbr = new CachableBlockFile.Reader(fs, path, conf, null, null,
-          AccumuloConfiguration.getDefaultConfiguration());
-      reader = new RFile.Reader(_cbr);
+      CachableBuilder b = new CachableBuilder().fsPath(fs, path).conf(conf)
+          .cryptoService(CryptoServiceFactory.newInstance(defaultConf, ClassloaderType.JAVA));
+      reader = new RFile.Reader(new CachableBlockFile.Reader(b));
       iter = new ColumnFamilySkippingIterator(reader);
 
       checkIndex(reader);
@@ -190,10 +202,6 @@ public class MultiThreadedRFileTest {
     public void closeReader() throws IOException {
       reader.close();
     }
-
-    public void seek(Key nk) throws IOException {
-      iter.seek(new Range(nk, null), EMPTY_COL_FAMS, false);
-    }
   }
 
   static Key newKey(String row, String cf, String cq, String cv, long ts) {
@@ -201,15 +209,16 @@ public class MultiThreadedRFileTest {
   }
 
   static Value newValue(String val) {
-    return new Value(val.getBytes());
+    return new Value(val);
   }
 
   public AccumuloConfiguration conf = null;
 
+  @SuppressFBWarnings(value = "INFORMATION_EXPOSURE_THROUGH_AN_ERROR_MESSAGE",
+      justification = "information put into error message is safe and used for testing")
   @Test
   public void testMultipleReaders() throws IOException {
-    final List<Throwable> threadExceptions =
-        Collections.synchronizedList(new ArrayList<Throwable>());
+    final List<Throwable> threadExceptions = Collections.synchronizedList(new ArrayList<>());
     Map<String,MutableInt> messages = new HashMap<>();
     Map<String,String> stackTrace = new HashMap<>();
 
@@ -230,22 +239,19 @@ public class MultiThreadedRFileTest {
       // now start up multiple RFile deepcopies
       int maxThreads = 10;
       String name = "MultiThreadedRFileTestThread";
-      ThreadPoolExecutor pool = new ThreadPoolExecutor(maxThreads + 1, maxThreads + 1, 5 * 60,
-          TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>(), new NamingThreadFactory(name));
+      ThreadPoolExecutor pool = ThreadPools.createThreadPool(maxThreads + 1, maxThreads + 1, 5 * 60,
+          TimeUnit.SECONDS, name, new LinkedBlockingQueue<>(), OptionalInt.empty(), false);
       pool.allowCoreThreadTimeOut(true);
       try {
-        Runnable runnable = new Runnable() {
-          @Override
-          public void run() {
-            try {
-              TestRFile trf = trfBase;
-              synchronized (trfBaseCopy) {
-                trf = trfBaseCopy.deepCopy();
-              }
-              validate(trf);
-            } catch (Throwable t) {
-              threadExceptions.add(t);
+        Runnable runnable = () -> {
+          try {
+            TestRFile trf = trfBase;
+            synchronized (trfBaseCopy) {
+              trf = trfBaseCopy.deepCopy();
             }
+            validate(trf);
+          } catch (Throwable t) {
+            threadExceptions.add(t);
           }
         };
         for (int i = 0; i < maxThreads; i++) {
@@ -262,10 +268,10 @@ public class MultiThreadedRFileTest {
 
       for (Throwable t : threadExceptions) {
         String msg = t.getClass() + " : " + t.getMessage();
-        if (!messages.containsKey(msg)) {
-          messages.put(msg, new MutableInt(1));
-        } else {
+        if (messages.containsKey(msg)) {
           messages.get(msg).increment();
+        } else {
+          messages.put(msg, new MutableInt(1));
         }
         StringWriter string = new StringWriter();
         PrintWriter writer = new PrintWriter(string);
@@ -279,15 +285,15 @@ public class MultiThreadedRFileTest {
     }
 
     for (String message : messages.keySet()) {
-      LOG.error(messages.get(message) + ": " + message);
-      LOG.error(stackTrace.get(message));
+      LOG.error("{}: {}", messages.get(message), message);
+      LOG.error("{}", stackTrace.get(message));
     }
 
     assertTrue(threadExceptions.isEmpty());
   }
 
   private void validate(TestRFile trf) throws IOException {
-    Random random = new Random();
+    Random random = new SecureRandom();
     for (int iteration = 0; iteration < 10; iteration++) {
       int part = random.nextInt(4);
 
@@ -358,7 +364,7 @@ public class MultiThreadedRFileTest {
     try {
       for (int locality = 1; locality < 4; locality++) {
         trfBase.writer.startNewLocalityGroup("locality" + locality,
-            Collections.singleton((ByteSequence) (new ArrayByteSequence(getCf(locality)))));
+            Collections.singleton(new ArrayByteSequence(getCf(locality))));
         for (int part = 0; part < 4; part++) {
           for (int i = 0; i < 2048; i++) {
             trfBase.writer.append(getKey(part, locality, i), getValue(i));

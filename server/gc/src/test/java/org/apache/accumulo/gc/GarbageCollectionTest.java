@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.gc;
 
@@ -30,31 +32,22 @@ import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.stream.Stream;
 
-import org.apache.accumulo.core.client.AccumuloException;
-import org.apache.accumulo.core.client.AccumuloSecurityException;
-import org.apache.accumulo.core.data.Key;
-import org.apache.accumulo.core.data.Value;
-import org.apache.accumulo.core.data.impl.KeyExtent;
-import org.apache.accumulo.core.metadata.schema.DataFileValue;
-import org.apache.accumulo.core.metadata.schema.MetadataSchema;
+import org.apache.accumulo.core.data.TableId;
 import org.apache.accumulo.server.replication.StatusUtil;
 import org.apache.accumulo.server.replication.proto.Replication.Status;
-import org.apache.hadoop.io.Text;
 import org.junit.Test;
 
-/**
- *
- */
 public class GarbageCollectionTest {
   static class TestGCE implements GarbageCollectionEnvironment {
     TreeSet<String> candidates = new TreeSet<>();
     ArrayList<String> blips = new ArrayList<>();
-    Map<Key,Value> references = new TreeMap<>();
-    HashSet<String> tableIds = new HashSet<>();
+    Map<String,Reference> references = new TreeMap<>();
+    HashSet<TableId> tableIds = new HashSet<>();
 
     ArrayList<String> deletes = new ArrayList<>();
-    ArrayList<String> tablesDirsToDelete = new ArrayList<>();
+    ArrayList<TableId> tablesDirsToDelete = new ArrayList<>();
     TreeMap<String,Status> filesToReplicate = new TreeMap<>();
 
     @Override
@@ -68,17 +61,17 @@ public class GarbageCollectionTest {
     }
 
     @Override
-    public Iterator<String> getBlipIterator() {
-      return blips.iterator();
+    public Stream<String> getBlipPaths() {
+      return blips.stream();
     }
 
     @Override
-    public Iterator<Entry<Key,Value>> getReferenceIterator() {
-      return references.entrySet().iterator();
+    public Stream<Reference> getReferences() {
+      return references.values().stream();
     }
 
     @Override
-    public Set<String> getTableIDs() {
+    public Set<TableId> getTableIDs() {
       return tableIds;
     }
 
@@ -89,48 +82,25 @@ public class GarbageCollectionTest {
     }
 
     @Override
-    public void deleteTableDirIfEmpty(String tableID) {
+    public void deleteTableDirIfEmpty(TableId tableID) {
       tablesDirsToDelete.add(tableID);
     }
 
-    public Key newFileReferenceKey(String tableId, String endRow, String file) {
-      String row = new KeyExtent(tableId, endRow == null ? null : new Text(endRow), null)
-          .getMetadataEntry().toString();
-      String cf = MetadataSchema.TabletsSection.DataFileColumnFamily.NAME.toString();
-      String cq = file;
-      Key key = new Key(row, cf, cq);
-      return key;
+    public void addFileReference(String tableId, String endRow, String file) {
+      references.put(tableId + ":" + endRow + ":" + file,
+          new Reference(TableId.of(tableId), file, false));
     }
 
-    public Value addFileReference(String tableId, String endRow, String file) {
-      Key key = newFileReferenceKey(tableId, endRow, file);
-      Value val = new Value(new DataFileValue(0, 0).encode());
-      return references.put(key, val);
+    public void removeFileReference(String tableId, String endRow, String file) {
+      references.remove(tableId + ":" + endRow + ":" + file);
     }
 
-    public Value removeFileReference(String tableId, String endRow, String file) {
-      return references.remove(newFileReferenceKey(tableId, endRow, file));
+    public void addDirReference(String tableId, String endRow, String dir) {
+      references.put(tableId + ":" + endRow, new Reference(TableId.of(tableId), dir, true));
     }
 
-    Key newDirReferenceKey(String tableId, String endRow) {
-      String row = new KeyExtent(tableId, endRow == null ? null : new Text(endRow), null)
-          .getMetadataEntry().toString();
-      String cf = MetadataSchema.TabletsSection.ServerColumnFamily.DIRECTORY_COLUMN
-          .getColumnFamily().toString();
-      String cq = MetadataSchema.TabletsSection.ServerColumnFamily.DIRECTORY_COLUMN
-          .getColumnQualifier().toString();
-      Key key = new Key(row, cf, cq);
-      return key;
-    }
-
-    public Value addDirReference(String tableId, String endRow, String dir) {
-      Key key = newDirReferenceKey(tableId, endRow);
-      Value val = new Value(dir.getBytes());
-      return references.put(key, val);
-    }
-
-    public Value removeDirReference(String tableId, String endRow) {
-      return references.remove(newDirReferenceKey(tableId, endRow));
+    public void removeDirReference(String tableId, String endRow) {
+      references.remove(tableId + ":" + endRow);
     }
 
     @Override
@@ -140,8 +110,7 @@ public class GarbageCollectionTest {
     public void incrementInUseStat(long i) {}
 
     @Override
-    public Iterator<Entry<String,Status>> getReplicationNeededIterator()
-        throws AccumuloException, AccumuloSecurityException {
+    public Iterator<Entry<String,Status>> getReplicationNeededIterator() {
       return filesToReplicate.entrySet().iterator();
     }
   }
@@ -308,10 +277,10 @@ public class GarbageCollectionTest {
     gce.candidates.add("/c/t-0");
     gce.candidates.add("hdfs://foo:6000/accumulo/tables/d/t-0");
 
-    gce.addDirReference("4", null, "/t-0");
-    gce.addDirReference("5", null, "/t-0");
-    gce.addDirReference("6", null, "hdfs://foo.com:6000/accumulo/tables/6/t-0");
-    gce.addDirReference("7", null, "hdfs://foo.com:6000/accumulo/tables/7/t-0");
+    gce.addDirReference("4", null, "t-0");
+    gce.addDirReference("5", null, "t-0");
+    gce.addDirReference("6", null, "t-0");
+    gce.addDirReference("7", null, "t-0");
 
     gce.addFileReference("8", "m", "/t-0/F00.rf");
     gce.addFileReference("9", "m", "/t-0/F00.rf");
@@ -372,10 +341,10 @@ public class GarbageCollectionTest {
     gce.candidates.add("/c/t-0");
     gce.candidates.add("hdfs://foo:6000/user/foo/tables/d/t-0");
 
-    gce.addDirReference("4", null, "/t-0");
-    gce.addDirReference("5", null, "/t-0");
-    gce.addDirReference("6", null, "hdfs://foo.com:6000/user/foo/tables/6/t-0");
-    gce.addDirReference("7", null, "hdfs://foo.com:6000/user/foo/tables/7/t-0");
+    gce.addDirReference("4", null, "t-0");
+    gce.addDirReference("5", null, "t-0");
+    gce.addDirReference("6", null, "t-0");
+    gce.addDirReference("7", null, "t-0");
 
     gce.addFileReference("8", "m", "/t-0/F00.rf");
     gce.addFileReference("9", "m", "/t-0/F00.rf");
@@ -497,7 +466,7 @@ public class GarbageCollectionTest {
 
     TestGCE gce = new TestGCE();
     gce.candidates.add("/1636/default_tablet");
-    gce.addDirReference("1636", null, "/default_tablet");
+    gce.addDirReference("1636", null, "default_tablet");
     gca.collect(gce);
     assertRemoved(gce);
 
@@ -514,7 +483,7 @@ public class GarbageCollectionTest {
     // have an indirect file reference
     gce = new TestGCE();
     gce.addFileReference("1636", null, "../9/default_tablet/someFile");
-    gce.addDirReference("1636", null, "/default_tablet");
+    gce.addDirReference("1636", null, "default_tablet");
     gce.candidates.add("/9/default_tablet/someFile");
     gca.collect(gce);
     assertRemoved(gce);
@@ -545,7 +514,7 @@ public class GarbageCollectionTest {
 
     TestGCE gce = new TestGCE();
 
-    gce.tableIds.add("4");
+    gce.tableIds.add(TableId.of("4"));
 
     gce.candidates.add("/4/t-0");
     gce.candidates.add("/4/t-0/F002.rf");
@@ -553,13 +522,13 @@ public class GarbageCollectionTest {
     gce.candidates.add("/6/t-0");
     gce.candidates.add("hdfs://foo:6000/accumulo/tables/7/t-0/");
 
-    gce.addDirReference("7", null, "hdfs://foo.com:6000/accumulo/tables/7/t-0");
+    gce.addDirReference("7", null, "t-0");
 
     gca.collect(gce);
 
-    HashSet<String> tids = new HashSet<>();
-    tids.add("5");
-    tids.add("6");
+    HashSet<TableId> tids = new HashSet<>();
+    tids.add(TableId.of("5"));
+    tids.add(TableId.of("6"));
 
     assertEquals(tids.size(), gce.tablesDirsToDelete.size());
     assertTrue(tids.containsAll(gce.tablesDirsToDelete));

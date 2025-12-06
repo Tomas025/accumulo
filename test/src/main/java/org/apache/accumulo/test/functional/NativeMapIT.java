@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.test.functional;
 
@@ -22,9 +24,11 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.io.File;
 import java.io.IOException;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -63,19 +67,19 @@ public class NativeMapIT {
   }
 
   private Value newValue(int v) {
-    return new Value(String.format("r%09d", v).getBytes(UTF_8));
+    return new Value(String.format("r%09d", v));
   }
 
   public static File nativeMapLocation() {
     File projectDir = new File(System.getProperty("user.dir")).getParentFile();
-    File nativeMapDir = new File(projectDir, "server/native/target/accumulo-native-"
-        + Constants.VERSION + "/accumulo-native-" + Constants.VERSION);
-    return nativeMapDir;
+    return new File(projectDir, "server/native/target/accumulo-native-" + Constants.VERSION
+        + "/accumulo-native-" + Constants.VERSION);
   }
 
   @BeforeClass
   public static void setUp() {
-    NativeMap.loadNativeLib(Collections.singletonList(nativeMapLocation()));
+    System.setProperty("accumulo.native.lib.path", nativeMapLocation().getAbsolutePath());
+    assertTrue(NativeMap.isLoaded());
   }
 
   private void verifyIterator(int start, int end, int valueOffset,
@@ -118,7 +122,7 @@ public class NativeMapIT {
       iter = nm.iterator(newKey(i));
       verifyIterator(i, end, valueOffset, iter);
 
-      // lookup nonexistant key that falls after existing key
+      // lookup nonexistent key that falls after existing key
       iter = nm.iterator(newKey(i, 1, 1, 1, 1, false));
       verifyIterator(i + 1, end, valueOffset, iter);
     }
@@ -266,42 +270,42 @@ public class NativeMapIT {
 
     try {
       nm.put(newKey(1), newValue(1));
-      assertTrue(false);
+      fail();
     } catch (IllegalStateException e) {
 
     }
 
     try {
       nm.get(newKey(1));
-      assertTrue(false);
+      fail();
     } catch (IllegalStateException e) {
 
     }
 
     try {
       nm.iterator();
-      assertTrue(false);
+      fail();
     } catch (IllegalStateException e) {
 
     }
 
     try {
       nm.iterator(newKey(1));
-      assertTrue(false);
+      fail();
     } catch (IllegalStateException e) {
 
     }
 
     try {
       nm.size();
-      assertTrue(false);
+      fail();
     } catch (IllegalStateException e) {
 
     }
 
     try {
       iter.next();
-      assertTrue(false);
+      fail();
     } catch (IllegalStateException e) {
 
     }
@@ -318,7 +322,7 @@ public class NativeMapIT {
 
     try {
       nm.delete();
-      assertTrue(false);
+      fail();
     } catch (IllegalStateException e) {
 
     }
@@ -364,7 +368,7 @@ public class NativeMapIT {
 
     try {
       iter.next();
-      assertTrue(false);
+      fail();
     } catch (NoSuchElementException e) {
 
     }
@@ -376,7 +380,7 @@ public class NativeMapIT {
 
     try {
       iter.next();
-      assertTrue(false);
+      fail();
     } catch (NoSuchElementException e) {
 
     }
@@ -418,8 +422,8 @@ public class NativeMapIT {
           "Memory changed after inserting duplicate data " + mem1 + " " + mem3);
     }
 
-    byte bigrow[] = new byte[1000000];
-    byte bigvalue[] = new byte[bigrow.length];
+    byte[] bigrow = new byte[1000000];
+    byte[] bigvalue = new byte[bigrow.length];
 
     for (int i = 0; i < bigrow.length; i++) {
       bigrow[i] = (byte) (0xff & (i % 256));
@@ -456,7 +460,7 @@ public class NativeMapIT {
   private static byte[] getRandomBytes(Random r, int maxLen) {
     int len = r.nextInt(maxLen);
 
-    byte f[] = new byte[len];
+    byte[] f = new byte[len];
     r.nextBytes(f);
 
     return f;
@@ -469,14 +473,14 @@ public class NativeMapIT {
     // insert things with varying field sizes and value sizes
 
     // generate random data
-    Random r = new Random(75);
+    Random r = new SecureRandom();
 
     ArrayList<Pair<Key,Value>> testData = new ArrayList<>();
 
     for (int i = 0; i < 100000; i++) {
 
       Key k = new Key(getRandomBytes(r, 97), getRandomBytes(r, 13), getRandomBytes(r, 31),
-          getRandomBytes(r, 11), (r.nextLong() & 0x7fffffffffffffffl), false, false);
+          getRandomBytes(r, 11), (r.nextLong() & 0x7fffffffffffffffL), false, false);
       Value v = new Value(getRandomBytes(r, 511));
 
       testData.add(new Pair<>(k, v));
@@ -490,12 +494,7 @@ public class NativeMapIT {
     for (int i = 0; i < 2; i++) {
 
       // sort data
-      Collections.sort(testData, new Comparator<Pair<Key,Value>>() {
-        @Override
-        public int compare(Pair<Key,Value> o1, Pair<Key,Value> o2) {
-          return o1.getFirst().compareTo(o2.getFirst());
-        }
-      });
+      testData.sort(Comparator.comparing(Pair::getFirst));
 
       // verify
       Iterator<Entry<Key,Value>> iter1 = nm.iterator();
@@ -536,12 +535,12 @@ public class NativeMapIT {
   public void testBinary() {
     NativeMap nm = new NativeMap();
 
-    byte emptyBytes[] = new byte[0];
+    byte[] emptyBytes = new byte[0];
 
     for (int i = 0; i < 256; i++) {
       for (int j = 0; j < 256; j++) {
-        byte row[] = new byte[] {'r', (byte) (0xff & i), (byte) (0xff & j)};
-        byte data[] = new byte[] {'v', (byte) (0xff & i), (byte) (0xff & j)};
+        byte[] row = {'r', (byte) (0xff & i), (byte) (0xff & j)};
+        byte[] data = {'v', (byte) (0xff & i), (byte) (0xff & j)};
 
         Key k = new Key(row, emptyBytes, emptyBytes, emptyBytes, 1);
         Value v = new Value(data);
@@ -553,8 +552,8 @@ public class NativeMapIT {
     Iterator<Entry<Key,Value>> iter = nm.iterator();
     for (int i = 0; i < 256; i++) {
       for (int j = 0; j < 256; j++) {
-        byte row[] = new byte[] {'r', (byte) (0xff & i), (byte) (0xff & j)};
-        byte data[] = new byte[] {'v', (byte) (0xff & i), (byte) (0xff & j)};
+        byte[] row = {'r', (byte) (0xff & i), (byte) (0xff & j)};
+        byte[] data = {'v', (byte) (0xff & i), (byte) (0xff & j)};
 
         Key k = new Key(row, emptyBytes, emptyBytes, emptyBytes, 1);
         Value v = new Value(data);
@@ -572,8 +571,8 @@ public class NativeMapIT {
 
     for (int i = 0; i < 256; i++) {
       for (int j = 0; j < 256; j++) {
-        byte row[] = new byte[] {'r', (byte) (0xff & i), (byte) (0xff & j)};
-        byte data[] = new byte[] {'v', (byte) (0xff & i), (byte) (0xff & j)};
+        byte[] row = {'r', (byte) (0xff & i), (byte) (0xff & j)};
+        byte[] data = {'v', (byte) (0xff & i), (byte) (0xff & j)};
 
         Key k = new Key(row, emptyBytes, emptyBytes, emptyBytes, 1);
         Value v = new Value(data);
@@ -591,8 +590,8 @@ public class NativeMapIT {
   public void testEmpty() {
     NativeMap nm = new NativeMap();
 
-    assertTrue(nm.size() == 0);
-    assertTrue(nm.getMemoryUsed() == 0);
+    assertEquals(0, nm.size());
+    assertEquals(0, nm.getMemoryUsed());
 
     nm.delete();
   }
