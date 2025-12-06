@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.server.master.state;
 
@@ -21,25 +23,29 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.apache.accumulo.core.Constants;
 import org.apache.accumulo.core.master.thrift.DeadServer;
-import org.apache.accumulo.fate.zookeeper.IZooReaderWriter;
+import org.apache.accumulo.fate.zookeeper.ZooReaderWriter;
 import org.apache.accumulo.fate.zookeeper.ZooUtil.NodeExistsPolicy;
 import org.apache.accumulo.fate.zookeeper.ZooUtil.NodeMissingPolicy;
-import org.apache.accumulo.server.zookeeper.ZooReaderWriter;
+import org.apache.accumulo.server.ServerContext;
 import org.apache.zookeeper.KeeperException.NoNodeException;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class DeadServerList {
-  private static final Logger log = LoggerFactory.getLogger(DeadServerList.class);
-  private final String path;
 
-  public DeadServerList(String path) {
-    this.path = path;
-    IZooReaderWriter zoo = ZooReaderWriter.getInstance();
+  private static final Logger log = LoggerFactory.getLogger(DeadServerList.class);
+
+  private final String path;
+  private final ZooReaderWriter zoo;
+
+  public DeadServerList(ServerContext context) {
+    this.path = context.getZooKeeperRoot() + Constants.ZDEADTSERVERS;
+    zoo = context.getZooReaderWriter();
     try {
-      zoo.mkdirs(path);
+      context.getZooReaderWriter().mkdirs(path);
     } catch (Exception ex) {
       log.error("Unable to make parent directories of " + path, ex);
     }
@@ -47,7 +53,6 @@ public class DeadServerList {
 
   public List<DeadServer> getList() {
     List<DeadServer> result = new ArrayList<>();
-    IZooReaderWriter zoo = ZooReaderWriter.getInstance();
     try {
       List<String> children = zoo.getChildren(path);
       if (children != null) {
@@ -73,7 +78,6 @@ public class DeadServerList {
   }
 
   public void delete(String server) {
-    IZooReaderWriter zoo = ZooReaderWriter.getInstance();
     try {
       zoo.recursiveDelete(path + "/" + server, NodeMissingPolicy.SKIP);
     } catch (Exception ex) {
@@ -82,7 +86,6 @@ public class DeadServerList {
   }
 
   public void post(String server, String cause) {
-    IZooReaderWriter zoo = ZooReaderWriter.getInstance();
     try {
       zoo.putPersistentData(path + "/" + server, cause.getBytes(UTF_8), NodeExistsPolicy.SKIP);
     } catch (Exception ex) {

@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.tserver;
 
@@ -28,26 +30,26 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 import org.apache.accumulo.core.client.SampleNotPresentException;
 import org.apache.accumulo.core.conf.Property;
 import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.Value;
-import org.apache.accumulo.core.data.impl.KeyExtent;
+import org.apache.accumulo.core.dataImpl.KeyExtent;
 import org.apache.accumulo.core.file.FileOperations;
 import org.apache.accumulo.core.file.FileSKVIterator;
-import org.apache.accumulo.core.file.blockfile.cache.BlockCache;
+import org.apache.accumulo.core.file.blockfile.impl.CacheProvider;
 import org.apache.accumulo.core.iterators.IteratorEnvironment;
 import org.apache.accumulo.core.iterators.SortedKeyValueIterator;
-import org.apache.accumulo.core.iterators.system.InterruptibleIterator;
-import org.apache.accumulo.core.iterators.system.SourceSwitchingIterator;
-import org.apache.accumulo.core.iterators.system.SourceSwitchingIterator.DataSource;
-import org.apache.accumulo.core.iterators.system.TimeSettingIterator;
+import org.apache.accumulo.core.iteratorsImpl.system.InterruptibleIterator;
+import org.apache.accumulo.core.iteratorsImpl.system.SourceSwitchingIterator;
+import org.apache.accumulo.core.iteratorsImpl.system.SourceSwitchingIterator.DataSource;
+import org.apache.accumulo.core.iteratorsImpl.system.TimeSettingIterator;
+import org.apache.accumulo.core.metadata.TabletFile;
 import org.apache.accumulo.core.metadata.schema.DataFileValue;
 import org.apache.accumulo.core.sample.impl.SamplerConfigurationImpl;
-import org.apache.accumulo.server.AccumuloServerContext;
-import org.apache.accumulo.server.fs.FileRef;
-import org.apache.accumulo.server.fs.VolumeManager;
+import org.apache.accumulo.server.ServerContext;
 import org.apache.accumulo.server.problems.ProblemReport;
 import org.apache.accumulo.server.problems.ProblemReportingIterator;
 import org.apache.accumulo.server.problems.ProblemReports;
@@ -79,13 +81,7 @@ public class FileManager {
 
     @Override
     public int compareTo(OpenReader o) {
-      if (releaseTime < o.releaseTime) {
-        return -1;
-      } else if (releaseTime > o.releaseTime) {
-        return 1;
-      } else {
-        return 0;
-      }
+      return Long.compare(releaseTime, o.releaseTime);
     }
 
     @Override
@@ -107,20 +103,12 @@ public class FileManager {
 
   private Semaphore filePermits;
 
-  private VolumeManager fs;
-
-  // the data cache and index cache are allocated in
-  // TabletResourceManager and passed through the file opener to
-  // CachableBlockFile which can handle the caches being
-  // null if unallocated
-  private BlockCache dataCache = null;
-  private BlockCache indexCache = null;
   private Cache<String,Long> fileLenCache;
 
   private long maxIdleTime;
   private long slowFilePermitMillis;
 
-  private final AccumuloServerContext context;
+  private final ServerContext context;
 
   private class IdleFileCloser implements Runnable {
 
@@ -149,7 +137,7 @@ public class FileManager {
             }
           }
 
-          if (ofl.size() == 0) {
+          if (ofl.isEmpty()) {
             iter.remove();
           }
         }
@@ -161,26 +149,15 @@ public class FileManager {
 
   }
 
-  /**
-   *
-   * @param dataCache
-   *          : underlying file can and should be able to handle a null cache
-   * @param indexCache
-   *          : underlying file can and should be able to handle a null cache
-   */
-  public FileManager(AccumuloServerContext context, VolumeManager fs, int maxOpen,
-      Cache<String,Long> fileLenCache, BlockCache dataCache, BlockCache indexCache) {
+  public FileManager(ServerContext context, int maxOpen, Cache<String,Long> fileLenCache) {
 
     if (maxOpen <= 0)
       throw new IllegalArgumentException("maxOpen <= 0");
     this.context = context;
-    this.dataCache = dataCache;
-    this.indexCache = indexCache;
     this.fileLenCache = fileLenCache;
 
     this.filePermits = new Semaphore(maxOpen, false);
     this.maxOpen = maxOpen;
-    this.fs = fs;
 
     this.openFiles = new HashMap<>();
     this.reservedReaders = new HashMap<>();
@@ -223,7 +200,7 @@ public class FileManager {
         throw new RuntimeException("Failed to remove open reader that should have been there");
       }
 
-      if (ofl.size() == 0) {
+      if (ofl.isEmpty()) {
         openFiles.remove(or.fileName);
       }
 
@@ -231,16 +208,6 @@ public class FileManager {
     }
 
     return ret;
-  }
-
-  private static <T> List<T> getFileList(String file, Map<String,List<T>> files) {
-    List<T> ofl = files.get(file);
-    if (ofl == null) {
-      ofl = new ArrayList<>();
-      files.put(file, ofl);
-    }
-
-    return ofl;
   }
 
   private void closeReaders(Collection<FileSKVIterator> filesToClose) {
@@ -258,10 +225,10 @@ public class FileManager {
     List<String> filesToOpen = Collections.emptyList();
     for (String file : files) {
       List<OpenReader> ofl = openFiles.get(file);
-      if (ofl != null && ofl.size() > 0) {
+      if (ofl != null && !ofl.isEmpty()) {
         OpenReader openReader = ofl.remove(ofl.size() - 1);
         readersReserved.put(openReader.reader, file);
-        if (ofl.size() == 0) {
+        if (ofl.isEmpty()) {
           openFiles.remove(file);
         }
       } else {
@@ -275,13 +242,13 @@ public class FileManager {
   }
 
   private Map<FileSKVIterator,String> reserveReaders(KeyExtent tablet, Collection<String> files,
-      boolean continueOnFailure) throws IOException {
+      boolean continueOnFailure, CacheProvider cacheProvider) throws IOException {
 
     if (!tablet.isMeta() && files.size() >= maxOpen) {
       throw new IllegalArgumentException("requested files exceeds max open");
     }
 
-    if (files.size() == 0) {
+    if (files.isEmpty()) {
       return Collections.emptyMap();
     }
 
@@ -320,6 +287,8 @@ public class FileManager {
       }
     }
 
+    readersReserved.forEach((k, v) -> k.setCacheProvider(cacheProvider));
+
     // close files before opening files to ensure we stay under resource
     // limitations
     closeReaders(filesToClose);
@@ -330,25 +299,24 @@ public class FileManager {
         if (!file.contains(":"))
           throw new IllegalArgumentException("Expected uri, got : " + file);
         Path path = new Path(file);
-        FileSystem ns = fs.getVolumeByPath(path).getFileSystem();
+        FileSystem ns = context.getVolumeManager().getFileSystemByPath(path);
         // log.debug("Opening "+file + " path " + path);
         FileSKVIterator reader = FileOperations.getInstance().newReaderBuilder()
-            .forFile(path.toString(), ns, ns.getConf())
-            .withTableConfiguration(
-                context.getServerConfigurationFactory().getTableConfiguration(tablet))
-            .withBlockCache(dataCache, indexCache).withFileLenCache(fileLenCache).build();
+            .forFile(path.toString(), ns, ns.getConf(), context.getCryptoService())
+            .withTableConfiguration(context.getTableConfiguration(tablet.tableId()))
+            .withCacheProvider(cacheProvider).withFileLenCache(fileLenCache).build();
         readersReserved.put(reader, file);
       } catch (Exception e) {
 
         ProblemReports.getInstance(context)
-            .report(new ProblemReport(tablet.getTableId(), ProblemType.FILE_READ, file, e));
+            .report(new ProblemReport(tablet.tableId(), ProblemType.FILE_READ, file, e));
 
         if (continueOnFailure) {
           // release the permit for the file that failed to open
           if (!tablet.isMeta()) {
             filePermits.release(1);
           }
-          log.warn("Failed to open file {} {}  continuing...", file, e.getMessage());
+          log.warn("Failed to open file {} {} continuing...", file, e.getMessage(), e);
         } else {
           // close whatever files were opened
           closeReaders(readersReserved.keySet());
@@ -395,7 +363,8 @@ public class FileManager {
       for (FileSKVIterator reader : readers) {
         String fileName = reservedReaders.remove(reader);
         if (!sawIOException)
-          getFileList(fileName, openFiles).add(new OpenReader(fileName, reader));
+          openFiles.computeIfAbsent(fileName, k -> new ArrayList<>())
+              .add(new OpenReader(fileName, reader));
       }
     }
 
@@ -489,13 +458,15 @@ public class FileManager {
     private ArrayList<FileSKVIterator> tabletReservedReaders;
     private KeyExtent tablet;
     private boolean continueOnFailure;
+    private CacheProvider cacheProvider;
 
-    ScanFileManager(KeyExtent tablet) {
+    ScanFileManager(KeyExtent tablet, CacheProvider cacheProvider) {
       tabletReservedReaders = new ArrayList<>();
       dataSources = new ArrayList<>();
       this.tablet = tablet;
+      this.cacheProvider = cacheProvider;
 
-      continueOnFailure = context.getServerConfigurationFactory().getTableConfiguration(tablet)
+      continueOnFailure = context.getTableConfiguration(tablet.tableId())
           .getBoolean(Property.TABLE_FAILURES_IGNORE);
 
       if (tablet.isMeta()) {
@@ -503,15 +474,7 @@ public class FileManager {
       }
     }
 
-    private Map<FileSKVIterator,String> openFileRefs(Collection<FileRef> files)
-        throws TooManyFilesException, IOException {
-      List<String> strings = new ArrayList<>(files.size());
-      for (FileRef ref : files)
-        strings.add(ref.path().toString());
-      return openFiles(strings);
-    }
-
-    private Map<FileSKVIterator,String> openFiles(Collection<String> files)
+    private Map<FileSKVIterator,String> openFiles(List<String> files)
         throws TooManyFilesException, IOException {
       // one tablet can not open more than maxOpen files, otherwise it could get stuck
       // forever waiting on itself to release files
@@ -524,16 +487,17 @@ public class FileManager {
       }
 
       Map<FileSKVIterator,String> newlyReservedReaders =
-          reserveReaders(tablet, files, continueOnFailure);
+          reserveReaders(tablet, files, continueOnFailure, cacheProvider);
 
       tabletReservedReaders.addAll(newlyReservedReaders.keySet());
       return newlyReservedReaders;
     }
 
-    public synchronized List<InterruptibleIterator> openFiles(Map<FileRef,DataFileValue> files,
+    public synchronized List<InterruptibleIterator> openFiles(Map<TabletFile,DataFileValue> files,
         boolean detachable, SamplerConfigurationImpl samplerConfig) throws IOException {
 
-      Map<FileSKVIterator,String> newlyReservedReaders = openFileRefs(files.keySet());
+      Map<FileSKVIterator,String> newlyReservedReaders = openFiles(
+          files.keySet().stream().map(TabletFile::getPathStr).collect(Collectors.toList()));
 
       ArrayList<InterruptibleIterator> iters = new ArrayList<>();
 
@@ -562,16 +526,16 @@ public class FileManager {
           FileDataSource fds = new FileDataSource(filename, source);
           dataSources.add(fds);
           SourceSwitchingIterator ssi = new SourceSwitchingIterator(fds);
-          iter = new ProblemReportingIterator(context, tablet.getTableId(), filename,
+          iter = new ProblemReportingIterator(context, tablet.tableId(), filename,
               continueOnFailure, ssi);
         } else {
-          iter = new ProblemReportingIterator(context, tablet.getTableId(), filename,
+          iter = new ProblemReportingIterator(context, tablet.tableId(), filename,
               continueOnFailure, source);
         }
 
         if (sawTimeSet) {
-          // constucting FileRef is expensive so avoid if not needed
-          DataFileValue value = files.get(new FileRef(filename));
+          // constructing FileRef is expensive so avoid if not needed
+          DataFileValue value = files.get(new TabletFile(new Path(filename)));
           if (value.isTimeSet()) {
             iter = new TimeSettingIterator(iter, value.getTime());
           }
@@ -593,30 +557,17 @@ public class FileManager {
     }
 
     public synchronized void reattach(SamplerConfigurationImpl samplerConfig) throws IOException {
-      if (tabletReservedReaders.size() != 0)
+      if (!tabletReservedReaders.isEmpty())
         throw new IllegalStateException();
 
-      Collection<String> files = new ArrayList<>();
-      for (FileDataSource fds : dataSources)
-        files.add(fds.file);
-
+      List<String> files = dataSources.stream().map(x -> x.file).collect(Collectors.toList());
       Map<FileSKVIterator,String> newlyReservedReaders = openFiles(files);
       Map<String,List<FileSKVIterator>> map = new HashMap<>();
-      for (Entry<FileSKVIterator,String> entry : newlyReservedReaders.entrySet()) {
-        FileSKVIterator reader = entry.getKey();
-        String fileName = entry.getValue();
-        List<FileSKVIterator> list = map.get(fileName);
-        if (list == null) {
-          list = new LinkedList<>();
-          map.put(fileName, list);
-        }
-
-        list.add(reader);
-      }
+      newlyReservedReaders.forEach(
+          (reader, fileName) -> map.computeIfAbsent(fileName, k -> new LinkedList<>()).add(reader));
 
       for (FileDataSource fds : dataSources) {
-        FileSKVIterator reader = map.get(fds.file).remove(0);
-        FileSKVIterator source = reader;
+        FileSKVIterator source = map.get(fds.file).remove(0);
         if (samplerConfig != null) {
           source = source.getSample(samplerConfig);
           if (source == null) {
@@ -638,7 +589,7 @@ public class FileManager {
     }
   }
 
-  public ScanFileManager newScanFileManager(KeyExtent tablet) {
-    return new ScanFileManager(tablet);
+  public ScanFileManager newScanFileManager(KeyExtent tablet, CacheProvider cacheProvider) {
+    return new ScanFileManager(tablet, cacheProvider);
   }
 }

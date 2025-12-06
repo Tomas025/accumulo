@@ -1,28 +1,24 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.core;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-
-import org.apache.accumulo.core.security.Authorizations;
 
 public class Constants {
 
@@ -33,7 +29,7 @@ public class Constants {
   public static final String ZINSTANCES = "/instances";
 
   public static final String ZTABLES = "/tables";
-  public static final byte[] ZTABLES_INITIAL_ID = new byte[] {'0'};
+  public static final byte[] ZTABLES_INITIAL_ID = {'0'};
   public static final String ZTABLE_NAME = "/name";
   public static final String ZTABLE_CONF = "/conf";
   public static final String ZTABLE_STATE = "/state";
@@ -58,7 +54,6 @@ public class Constants {
   public static final String ZMONITOR = "/monitor";
   public static final String ZMONITOR_LOCK = ZMONITOR + "/lock";
   public static final String ZMONITOR_HTTP_ADDR = ZMONITOR + "/http_addr";
-  public static final String ZMONITOR_LOG4J_ADDR = ZMONITOR + "/log4j_addr";
 
   public static final String ZCONFIG = "/config";
 
@@ -87,14 +82,11 @@ public class Constants {
    */
   public static final String ZDELEGATION_TOKEN_KEYS = "/delegation_token_keys";
 
-  /**
-   * Initial tablet directory name for the default tablet in all tables
-   */
-  public static final String DEFAULT_TABLET_LOCATION = "/default_tablet";
-
   public static final String ZTABLE_LOCKS = "/table_locks";
 
   public static final String BULK_PREFIX = "b-";
+  public static final String BULK_RENAME_FILE = "renames.json";
+  public static final String BULK_LOAD_MAPPING = "loadmap.json";
 
   public static final String CLONE_PREFIX = "c-";
   public static final byte[] CLONE_PREFIX_BYTES = CLONE_PREFIX.getBytes(UTF_8);
@@ -104,16 +96,7 @@ public class Constants {
 
   // Scanners will default to fetching 3 batches of Key/Value pairs before asynchronously
   // fetching the next batch.
-  public static final long SCANNER_DEFAULT_READAHEAD_THRESHOLD = 3l;
-
-  // Security configuration
-  public static final String PW_HASH_ALGORITHM = "SHA-256";
-
-  /**
-   * @deprecated since 1.6.0; Use {@link Authorizations#EMPTY} instead
-   */
-  @Deprecated
-  public static final Authorizations NO_AUTHS = Authorizations.EMPTY;
+  public static final long SCANNER_DEFAULT_READAHEAD_THRESHOLD = 3L;
 
   public static final int MAX_DATA_TO_PRINT = 64;
   public static final String CORE_PACKAGE_NAME = "org.apache.accumulo.core";
@@ -125,11 +108,10 @@ public class Constants {
   public static final String EXPORT_FILE = "exportMetadata.zip";
   public static final String EXPORT_INFO_FILE = "accumulo_export_info.txt";
 
-  // Variables that will be substituted with environment vars in PropertyType.PATH values
-  public static final Collection<String> PATH_PROPERTY_ENV_VARS =
-      Collections.unmodifiableCollection(Arrays.asList("ACCUMULO_HOME", "ACCUMULO_CONF_DIR"));
-
   public static final String HDFS_TABLES_DIR = "/tables";
 
   public static final int DEFAULT_VISIBILITY_CACHE_SIZE = 1000;
+
+  public static final int MAX_TABLE_NAME_LEN = 1024;
+  public static final int MAX_NAMESPACE_LEN = 1024;
 }

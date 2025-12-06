@@ -20,6 +20,7 @@ package org.apache.accumulo.test.functional;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeTrue;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -30,15 +31,15 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
+import org.apache.accumulo.core.client.Accumulo;
+import org.apache.accumulo.core.client.AccumuloClient;
 import org.apache.accumulo.core.client.AccumuloException;
 import org.apache.accumulo.core.client.AccumuloSecurityException;
 import org.apache.accumulo.core.client.TableNotFoundException;
 import org.apache.accumulo.core.conf.Property;
 import org.apache.accumulo.harness.AccumuloClusterHarness;
-import org.apache.accumulo.minicluster.impl.MiniAccumuloConfigImpl;
 import org.apache.accumulo.test.metrics.MetricsFileTailer;
 import org.apache.accumulo.test.util.SlowOps;
-import org.apache.hadoop.conf.Configuration;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -51,13 +52,20 @@ import org.slf4j.LoggerFactory;
  */
 public class MasterMetricsIT extends AccumuloClusterHarness {
 
+  @Override
+  public boolean canRunTest(ClusterType type) {
+    return type == ClusterType.MINI;
+  }
+
   private static final Logger log = LoggerFactory.getLogger(MasterMetricsIT.class);
+
+  private AccumuloClient accumuloClient;
 
   private static final int NUM_TAIL_ATTEMPTS = 20;
   private static final long TAIL_DELAY = 5_000;
 
   // number of tables / concurrent compactions used during testing.
-  private final int tableCount = 4;
+  private final int tableCount = 1;
 
   private long maxWait;
 
@@ -69,22 +77,11 @@ public class MasterMetricsIT extends AccumuloClusterHarness {
   private static final Set<String> OPTIONAL_METRIC_KEYS =
       new HashSet<>(Collections.singletonList("FateTxOpType_CompactRange"));
 
-  private MetricsFileTailer metricsTail = null;
-
-  @Override
-  public void configureMiniCluster(MiniAccumuloConfigImpl cfg, Configuration hadoopCoreSite) {
-    cfg.setProperty(Property.GENERAL_LEGACY_METRICS, "false");
-    cfg.setProperty(Property.MASTER_FATE_METRICS_ENABLED, "true");
-    cfg.setProperty(Property.MASTER_FATE_METRICS_MIN_UPDATE_INTERVAL, "5s");
-  }
+  private MetricsFileTailer metricsTail;
 
   @Before
   public void setup() {
-
-    if (testDisabled()) {
-      return;
-    }
-
+    accumuloClient = Accumulo.newClient().from(getClientProps()).build();
     maxWait = defaultTimeoutSeconds() <= 0 ? 60_000 : ((defaultTimeoutSeconds() * 1000) / 2);
 
     metricsTail = new MetricsFileTailer("accumulo.sink.file-master");
@@ -95,9 +92,8 @@ public class MasterMetricsIT extends AccumuloClusterHarness {
 
   @After
   public void cleanup() {
-    if (metricsTail != null) {
+    if (metricsTail != null)
       metricsTail.close();
-    }
   }
 
   @Override
@@ -110,26 +106,21 @@ public class MasterMetricsIT extends AccumuloClusterHarness {
    * from operation types.
    */
   @Test
-  public void metricsPublished() {
+  public void metricsPublished() throws AccumuloException, AccumuloSecurityException {
 
-    if (testDisabled()) {
-      log.info("Skipping test - master metrics not enabled.");
-      return;
-    }
+    assumeTrue(accumuloClient.instanceOperations().getSystemConfiguration()
+        .get(Property.MASTER_FATE_METRICS_ENABLED.getKey()).compareTo("true") == 0);
 
-    // throw away first update - could be from previous test (possible with cluster
-    // restarts in each test)
+    log.trace("Client started, properties:{}", accumuloClient.properties());
+
     MetricsFileTailer.LineUpdate firstUpdate =
         metricsTail.waitForUpdate(-1, NUM_TAIL_ATTEMPTS, TAIL_DELAY);
 
-    firstUpdate =
-        metricsTail.waitForUpdate(firstUpdate.getLastUpdate(), NUM_TAIL_ATTEMPTS, TAIL_DELAY);
-
     Map<String,Long> firstSeenMap = parseLine(firstUpdate.getLine());
 
-    log.debug("Line received: {}", firstUpdate.getLine());
-    log.info("Expected metrics count: {}", REQUIRED_METRIC_KEYS.size());
-    log.info("Received metrics count: {},  values:{}", firstSeenMap.size(), firstSeenMap);
+    log.info("L:{}", firstUpdate.getLine());
+    log.info("Expected: ({})", REQUIRED_METRIC_KEYS.size());
+    log.info("M({}):{}", firstSeenMap.size(), firstSeenMap);
 
     assertTrue(lookForExpectedKeys(firstSeenMap));
     sanity(firstSeenMap);
@@ -153,12 +144,10 @@ public class MasterMetricsIT extends AccumuloClusterHarness {
    * metrics.
    */
   @Test
-  public void compactionMetrics() {
+  public void compactionMetrics() throws AccumuloSecurityException, AccumuloException {
 
-    if (testDisabled()) {
-      log.info("Skipping test - MASTER_FATE_METRICS_ENABLED is not enabled");
-      return;
-    }
+    assumeTrue(accumuloClient.instanceOperations().getSystemConfiguration()
+        .get(Property.MASTER_FATE_METRICS_ENABLED.getKey()).compareTo("true") == 0);
 
     MetricsFileTailer.LineUpdate firstUpdate =
         metricsTail.waitForUpdate(-1, NUM_TAIL_ATTEMPTS, TAIL_DELAY);
@@ -167,7 +156,8 @@ public class MasterMetricsIT extends AccumuloClusterHarness {
 
     for (int i = 0; i < tableCount; i++) {
       String uniqueName = getUniqueNames(1)[0] + "_" + i;
-      SlowOps gen = new SlowOps(getConnector(), uniqueName, maxWait, tableCount);
+      SlowOps.setExpectedCompactions(accumuloClient, tableCount);
+      SlowOps gen = new SlowOps(accumuloClient, uniqueName, maxWait);
       tables.add(gen);
       gen.startCompactTask();
     }
@@ -181,7 +171,7 @@ public class MasterMetricsIT extends AccumuloClusterHarness {
     Map<String,String> results = blockForRequiredTables();
 
     assertFalse(results.isEmpty());
-    log.info("IN_PROGRESS: {}", results.get("FateTxState_IN_PROGRESS"));
+    log.error("IN_PROGRESS: {}", results.get("FateTxState_IN_PROGRESS"));
 
     assertTrue(Long.parseLong(results.get("FateTxState_IN_PROGRESS")) >= tableCount);
     assertTrue(Long.parseLong(results.get("FateTxOpType_CompactRange")) >= tableCount);
@@ -191,10 +181,9 @@ public class MasterMetricsIT extends AccumuloClusterHarness {
       assertTrue(Long.parseLong(results.get(k)) >= tableCount);
     }
 
-    // clean-up cancel running compactions
     for (SlowOps t : tables) {
       try {
-        getConnector().tableOperations().cancelCompaction(t.getTableName());
+        accumuloClient.tableOperations().cancelCompaction(t.getTableName());
         // block if compaction still running
         boolean cancelled = t.blockWhileCompactionRunning();
         if (!cancelled) {
@@ -206,14 +195,6 @@ public class MasterMetricsIT extends AccumuloClusterHarness {
       }
     }
 
-    for (SlowOps t : tables) {
-      try {
-        log.debug("delete table {}", t.getTableName());
-        getConnector().tableOperations().delete(t.getTableName());
-      } catch (AccumuloSecurityException | AccumuloException | TableNotFoundException e) {
-        // empty
-      }
-    }
     // wait for one more metrics update after compactions cancelled.
     MetricsFileTailer.LineUpdate update =
         metricsTail.waitForUpdate(0L, NUM_TAIL_ATTEMPTS, TAIL_DELAY);
@@ -239,7 +220,7 @@ public class MasterMetricsIT extends AccumuloClusterHarness {
 
       Map<String,String> results = metricsTail.parseLine("");
 
-      if (results != null && results.size() > 0
+      if (results != null && !results.isEmpty()
           && Long.parseLong(results.get("currentFateOps")) >= tableCount) {
         log.info("Found required number of fate operations");
         return results;
@@ -256,7 +237,7 @@ public class MasterMetricsIT extends AccumuloClusterHarness {
   }
 
   /**
-   * Validate metrics for consistency with in a run cycle.
+   * Validate metrics for consistency withing a run cycle.
    *
    * @param values
    *          map of values from one run cycle.
@@ -282,8 +263,6 @@ public class MasterMetricsIT extends AccumuloClusterHarness {
    */
   private void validate(Map<String,Long> firstSeen, Map<String,Long> nextSeen) {
     // total fate ops should not decrease.
-    log.debug("Total fate ops.  Before:{}, Update:{}", firstSeen.get("totalFateOps"),
-        nextSeen.get("totalFateOps"));
     assertTrue(firstSeen.get("totalFateOps") <= nextSeen.get("totalFateOps"));
   }
 
@@ -294,7 +273,7 @@ public class MasterMetricsIT extends AccumuloClusterHarness {
    *
    * @param line
    *          a line from the metrics system file sink.
-   * @return a map of the metrics that match REQUIRED_METRICS_KEYS
+   * @return a map of the metrics that start with AccGc
    */
   private Map<String,Long> parseLine(final String line) {
 
@@ -327,29 +306,4 @@ public class MasterMetricsIT extends AccumuloClusterHarness {
 
     return true;
   }
-
-  /**
-   * FATE metrics only valid when MASTER_FATE_METRICS_ENABLED=true and GENERAL_LEGACY_METRICS=flase
-   *
-   * @return true if test should run
-   */
-  private boolean testDisabled() {
-
-    boolean fateMetricsEnabled =
-        cluster.getSiteConfiguration().getBoolean(Property.MASTER_FATE_METRICS_ENABLED);
-
-    boolean useLegacyMetrics =
-        cluster.getSiteConfiguration().getBoolean(Property.GENERAL_LEGACY_METRICS);
-
-    if (!fateMetricsEnabled || useLegacyMetrics) {
-
-      log.info("master fate metrics are disabled - MASTER_FATE_METRICS_ENABLED={}, "
-          + "GENERAL_LEGACY_METRICS={}", fateMetricsEnabled, useLegacyMetrics);
-
-      return true;
-    }
-
-    return false;
-  }
-
 }

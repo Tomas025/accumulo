@@ -1,24 +1,28 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.core.iterators.user;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -34,7 +38,7 @@ import org.apache.accumulo.core.iterators.DefaultIteratorEnvironment;
 import org.apache.accumulo.core.iterators.IteratorEnvironment;
 import org.apache.accumulo.core.iterators.SortedKeyValueIterator;
 import org.apache.accumulo.core.iterators.SortedMapIterator;
-import org.apache.accumulo.core.iterators.system.MultiIterator;
+import org.apache.accumulo.core.iteratorsImpl.system.MultiIterator;
 import org.apache.hadoop.io.Text;
 import org.junit.Rule;
 import org.junit.Test;
@@ -58,7 +62,7 @@ public class IntersectingIteratorTest {
   private TreeMap<Key,Value> createSortedMap(float hitRatio, int numRows, int numDocsPerRow,
       Text[] columnFamilies, Text[] otherColumnFamilies, HashSet<Text> docs,
       Text[] negatedColumns) {
-    Random r = new Random();
+    Random r = new SecureRandom();
     Value v = new Value(new byte[0]);
     TreeMap<Key,Value> map = new TreeMap<>();
     boolean[] negateMask = new boolean[columnFamilies.length];
@@ -101,22 +105,21 @@ public class IntersectingIteratorTest {
   }
 
   private SortedKeyValueIterator<Key,Value> createIteratorStack(float hitRatio, int numRows,
-      int numDocsPerRow, Text[] columnFamilies, Text[] otherColumnFamilies, HashSet<Text> docs)
-      throws IOException {
-    Text nullText[] = new Text[0];
+      int numDocsPerRow, Text[] columnFamilies, Text[] otherColumnFamilies, HashSet<Text> docs) {
+    Text[] nullText = new Text[0];
     return createIteratorStack(hitRatio, numRows, numDocsPerRow, columnFamilies,
         otherColumnFamilies, docs, nullText);
   }
 
   private SortedKeyValueIterator<Key,Value> createIteratorStack(float hitRatio, int numRows,
       int numDocsPerRow, Text[] columnFamilies, Text[] otherColumnFamilies, HashSet<Text> docs,
-      Text[] negatedColumns) throws IOException {
+      Text[] negatedColumns) {
     TreeMap<Key,Value> inMemoryMap = createSortedMap(hitRatio, numRows, numDocsPerRow,
         columnFamilies, otherColumnFamilies, docs, negatedColumns);
     return new SortedMapIterator(inMemoryMap);
   }
 
-  private void cleanup() throws IOException {
+  private void cleanup() {
     docid = 0;
   }
 
@@ -152,7 +155,7 @@ public class IntersectingIteratorTest {
       assertTrue(docs.contains(k.getColumnQualifier()));
       iter.next();
     }
-    assertTrue(hitCount == docs.size());
+    assertEquals(hitCount, docs.size());
     cleanup();
   }
 
@@ -183,7 +186,7 @@ public class IntersectingIteratorTest {
       assertTrue(docs.contains(k.getColumnQualifier()));
       iter.next();
     }
-    assertTrue(hitCount == docs.size());
+    assertEquals(hitCount, docs.size());
     cleanup();
   }
 
@@ -223,7 +226,7 @@ public class IntersectingIteratorTest {
       assertTrue(docs.contains(k.getColumnQualifier()));
       iter.next();
     }
-    assertTrue(hitCount == docs.size());
+    assertEquals(hitCount, docs.size());
     cleanup();
   }
 
@@ -261,7 +264,7 @@ public class IntersectingIteratorTest {
       assertTrue(docs.contains(k.getColumnQualifier()));
       iter.next();
     }
-    assertTrue(hitCount == docs.size());
+    assertEquals(hitCount, docs.size());
     cleanup();
   }
 
@@ -290,7 +293,7 @@ public class IntersectingIteratorTest {
       assertTrue(docs.contains(k.getColumnQualifier()));
       iter.next();
     }
-    assertTrue(hitCount == docs.size());
+    assertEquals(hitCount, docs.size());
     cleanup();
   }
 }

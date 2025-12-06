@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.test.replication;
 
@@ -21,16 +23,19 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import java.security.PrivilegedExceptionAction;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 
 import org.apache.accumulo.cluster.ClusterUser;
+import org.apache.accumulo.core.client.AccumuloClient;
 import org.apache.accumulo.core.client.BatchWriter;
-import org.apache.accumulo.core.client.BatchWriterConfig;
-import org.apache.accumulo.core.client.Connector;
-import org.apache.accumulo.core.client.Scanner;
+import org.apache.accumulo.core.client.admin.NewTableConfiguration;
 import org.apache.accumulo.core.client.security.tokens.KerberosToken;
 import org.apache.accumulo.core.client.security.tokens.PasswordToken;
+import org.apache.accumulo.core.clientImpl.ClientInfo;
+import org.apache.accumulo.core.conf.ClientProperty;
 import org.apache.accumulo.core.conf.Property;
 import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.Mutation;
@@ -43,9 +48,9 @@ import org.apache.accumulo.harness.MiniClusterHarness;
 import org.apache.accumulo.harness.TestingKdc;
 import org.apache.accumulo.master.replication.SequentialWorkAssigner;
 import org.apache.accumulo.minicluster.ServerType;
-import org.apache.accumulo.minicluster.impl.MiniAccumuloClusterImpl;
-import org.apache.accumulo.minicluster.impl.MiniAccumuloConfigImpl;
-import org.apache.accumulo.minicluster.impl.ProcessReference;
+import org.apache.accumulo.miniclusterImpl.MiniAccumuloClusterImpl;
+import org.apache.accumulo.miniclusterImpl.MiniAccumuloConfigImpl;
+import org.apache.accumulo.miniclusterImpl.ProcessReference;
 import org.apache.accumulo.server.replication.ReplicaSystemFactory;
 import org.apache.accumulo.test.categories.MiniClusterOnlyTests;
 import org.apache.accumulo.test.functional.KerberosIT;
@@ -84,18 +89,18 @@ public class KerberosReplicationIT extends AccumuloITBase {
     kdc = new TestingKdc();
     kdc.start();
     krbEnabledForITs = System.getProperty(MiniClusterHarness.USE_KERBEROS_FOR_IT_OPTION);
-    if (null == krbEnabledForITs || !Boolean.parseBoolean(krbEnabledForITs)) {
+    if (krbEnabledForITs == null || !Boolean.parseBoolean(krbEnabledForITs)) {
       System.setProperty(MiniClusterHarness.USE_KERBEROS_FOR_IT_OPTION, "true");
     }
     rootUser = kdc.getRootUser();
   }
 
   @AfterClass
-  public static void stopKdc() throws Exception {
-    if (null != kdc) {
+  public static void stopKdc() {
+    if (kdc != null) {
       kdc.stop();
     }
-    if (null != krbEnabledForITs) {
+    if (krbEnabledForITs != null) {
       System.setProperty(MiniClusterHarness.USE_KERBEROS_FOR_IT_OPTION, krbEnabledForITs);
     }
   }
@@ -113,6 +118,7 @@ public class KerberosReplicationIT extends AccumuloITBase {
       @Override
       public void configureMiniCluster(MiniAccumuloConfigImpl cfg, Configuration coreSite) {
         cfg.setNumTservers(1);
+        cfg.setClientProperty(ClientProperty.INSTANCE_ZOOKEEPERS_TIMEOUT, "15s");
         cfg.setProperty(Property.INSTANCE_ZK_TIMEOUT, "15s");
         cfg.setProperty(Property.TSERV_WALOG_MAX_SIZE, "2M");
         cfg.setProperty(Property.GC_CYCLE_START, "1s");
@@ -150,10 +156,10 @@ public class KerberosReplicationIT extends AccumuloITBase {
 
   @After
   public void teardown() throws Exception {
-    if (null != peer) {
+    if (peer != null) {
       peer.stop();
     }
-    if (null != primary) {
+    if (primary != null) {
       primary.stop();
     }
     UserGroupInformation.setConfiguration(new Configuration(false));
@@ -164,71 +170,72 @@ public class KerberosReplicationIT extends AccumuloITBase {
     // Login as the root user
     final UserGroupInformation ugi = UserGroupInformation.loginUserFromKeytabAndReturnUGI(
         rootUser.getPrincipal(), rootUser.getKeytab().toURI().toString());
-    ugi.doAs(new PrivilegedExceptionAction<Void>() {
-      @Override
-      public Void run() throws Exception {
-        log.info("testing {}", ugi);
-        final KerberosToken token = new KerberosToken();
-        final Connector primaryConn = primary.getConnector(rootUser.getPrincipal(), token);
-        final Connector peerConn = peer.getConnector(rootUser.getPrincipal(), token);
+    ugi.doAs((PrivilegedExceptionAction<Void>) () -> {
+      log.info("testing {}", ugi);
+      final KerberosToken token = new KerberosToken();
+      try (
+          AccumuloClient primaryclient =
+              primary.createAccumuloClient(rootUser.getPrincipal(), token);
+          AccumuloClient peerclient = peer.createAccumuloClient(rootUser.getPrincipal(), token)) {
 
         ClusterUser replicationUser = kdc.getClientPrincipal(0);
 
         // Create user for replication to the peer
-        peerConn.securityOperations().createLocalUser(replicationUser.getPrincipal(), null);
+        peerclient.securityOperations().createLocalUser(replicationUser.getPrincipal(), null);
 
-        primaryConn.instanceOperations().setProperty(
+        primaryclient.instanceOperations().setProperty(
             Property.REPLICATION_PEER_USER.getKey() + PEER_NAME, replicationUser.getPrincipal());
-        primaryConn.instanceOperations().setProperty(
+        primaryclient.instanceOperations().setProperty(
             Property.REPLICATION_PEER_KEYTAB.getKey() + PEER_NAME,
             replicationUser.getKeytab().getAbsolutePath());
 
         // ...peer = AccumuloReplicaSystem,instanceName,zookeepers
-        primaryConn.instanceOperations().setProperty(
+        ClientInfo info = ClientInfo.from(peerclient.properties());
+        primaryclient.instanceOperations().setProperty(
             Property.REPLICATION_PEERS.getKey() + PEER_NAME,
             ReplicaSystemFactory.getPeerConfigurationValue(AccumuloReplicaSystem.class,
-                AccumuloReplicaSystem.buildConfiguration(peerConn.getInstance().getInstanceName(),
-                    peerConn.getInstance().getZooKeepers())));
+                AccumuloReplicaSystem.buildConfiguration(info.getInstanceName(),
+                    info.getZooKeepers())));
 
         String primaryTable1 = "primary", peerTable1 = "peer";
 
         // Create tables
-        primaryConn.tableOperations().create(primaryTable1);
-        String masterTableId1 = primaryConn.tableOperations().tableIdMap().get(primaryTable1);
-        assertNotNull(masterTableId1);
-
-        peerConn.tableOperations().create(peerTable1);
-        String peerTableId1 = peerConn.tableOperations().tableIdMap().get(peerTable1);
+        peerclient.tableOperations().create(peerTable1);
+        String peerTableId1 = peerclient.tableOperations().tableIdMap().get(peerTable1);
         assertNotNull(peerTableId1);
 
+        Map<String,String> props = new HashMap<>();
+        props.put(Property.TABLE_REPLICATION.getKey(), "true");
+        // Replicate this table to the peerClusterName in a table with the peerTableId table id
+        props.put(Property.TABLE_REPLICATION_TARGET.getKey() + PEER_NAME, peerTableId1);
+
+        primaryclient.tableOperations().create(primaryTable1,
+            new NewTableConfiguration().setProperties(props));
+        String masterTableId1 = primaryclient.tableOperations().tableIdMap().get(primaryTable1);
+        assertNotNull(masterTableId1);
+
         // Grant write permission
-        peerConn.securityOperations().grantTablePermission(replicationUser.getPrincipal(),
+        peerclient.securityOperations().grantTablePermission(replicationUser.getPrincipal(),
             peerTable1, TablePermission.WRITE);
 
-        // Replicate this table to the peerClusterName in a table with the peerTableId table id
-        primaryConn.tableOperations().setProperty(primaryTable1,
-            Property.TABLE_REPLICATION.getKey(), "true");
-        primaryConn.tableOperations().setProperty(primaryTable1,
-            Property.TABLE_REPLICATION_TARGET.getKey() + PEER_NAME, peerTableId1);
-
         // Write some data to table1
-        BatchWriter bw = primaryConn.createBatchWriter(primaryTable1, new BatchWriterConfig());
-        long masterTable1Records = 0l;
-        for (int rows = 0; rows < 2500; rows++) {
-          Mutation m = new Mutation(primaryTable1 + rows);
-          for (int cols = 0; cols < 100; cols++) {
-            String value = Integer.toString(cols);
-            m.put(value, "", value);
-            masterTable1Records++;
+        long masterTable1Records = 0L;
+        try (BatchWriter bw = primaryclient.createBatchWriter(primaryTable1)) {
+          for (int rows = 0; rows < 2500; rows++) {
+            Mutation m = new Mutation(primaryTable1 + rows);
+            for (int cols = 0; cols < 100; cols++) {
+              String value = Integer.toString(cols);
+              m.put(value, "", value);
+              masterTable1Records++;
+            }
+            bw.addMutation(m);
           }
-          bw.addMutation(m);
         }
-
-        bw.close();
 
         log.info("Wrote all data to primary cluster");
 
-        Set<String> filesFor1 = primaryConn.replicationOperations().referencedFiles(primaryTable1);
+        Set<String> filesFor1 =
+            primaryclient.replicationOperations().referencedFiles(primaryTable1);
 
         // Restart the tserver to force a close on the WAL
         for (ProcessReference proc : primary.getProcesses().get(ServerType.TABLET_SERVER)) {
@@ -239,15 +246,15 @@ public class KerberosReplicationIT extends AccumuloITBase {
         log.info("Restarted the tserver");
 
         // Read the data -- the tserver is back up and running and tablets are assigned
-        Iterators.size(primaryConn.createScanner(primaryTable1, Authorizations.EMPTY).iterator());
+        Iterators.size(primaryclient.createScanner(primaryTable1, Authorizations.EMPTY).iterator());
 
         // Wait for both tables to be replicated
         log.info("Waiting for {} for {}", filesFor1, primaryTable1);
-        primaryConn.replicationOperations().drain(primaryTable1, filesFor1);
+        primaryclient.replicationOperations().drain(primaryTable1, filesFor1);
 
-        long countTable = 0l;
-        try (Scanner s = peerConn.createScanner(peerTable1, Authorizations.EMPTY)) {
-          for (Entry<Key,Value> entry : s) {
+        long countTable = 0L;
+        try (var scanner = peerclient.createScanner(peerTable1, Authorizations.EMPTY)) {
+          for (Entry<Key,Value> entry : scanner) {
             countTable++;
             assertTrue(
                 "Found unexpected key-value" + entry.getKey().toStringNoTruncate() + " "

@@ -1,23 +1,27 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.tracer;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
+import java.io.File;
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.AbstractQueue;
@@ -31,7 +35,7 @@ import java.util.TimerTask;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.apache.accumulo.core.trace.DistributedTrace;
+import org.apache.accumulo.core.trace.TraceUtil;
 import org.apache.accumulo.tracer.thrift.Annotation;
 import org.apache.accumulo.tracer.thrift.RemoteSpan;
 import org.apache.htrace.HTraceConfiguration;
@@ -40,6 +44,8 @@ import org.apache.htrace.SpanReceiver;
 import org.apache.htrace.TimelineAnnotation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.google.common.primitives.Longs;
 
 /**
  * Deliver Span information periodically to a destination.
@@ -61,8 +67,9 @@ public abstract class AsyncSpanReceiver<SpanKey,Destination> implements SpanRece
 
   protected String host = null;
   protected String service = null;
+  protected String processId = null;
 
-  protected abstract Destination createDestination(SpanKey key) throws Exception;
+  protected abstract Destination createDestination(SpanKey key);
 
   protected abstract void send(Destination resource, RemoteSpan span) throws Exception;
 
@@ -79,15 +86,26 @@ public abstract class AsyncSpanReceiver<SpanKey,Destination> implements SpanRece
   AsyncSpanReceiver() {}
 
   public AsyncSpanReceiver(HTraceConfiguration conf) {
-    host = conf.get(DistributedTrace.TRACE_HOST_PROPERTY, host);
-    if (host == null) {
+    try {
+      if (System.getProperty("os.name", "unknown").toLowerCase().contains("linux")) {
+        processId = new File("/proc/self").getCanonicalFile().getName();
+      }
+    } catch (IOException e) {
+      // can't get the PID; no big deal
+      log.debug("Unable to read canonical filename /proc/self to get the PID");
+    }
+
+    host = conf.get(TraceUtil.TRACE_HOST_PROPERTY, host);
+    log.info("host from config: {}", host);
+    if (host == null || "0.0.0.0".equals(host)) {
       try {
         host = InetAddress.getLocalHost().getCanonicalHostName().toString();
       } catch (UnknownHostException e) {
         host = "unknown";
       }
     }
-    service = conf.get(DistributedTrace.TRACE_SERVICE_PROPERTY, service);
+    log.info("starting span receiver with hostname {}", host);
+    service = conf.get(TraceUtil.TRACE_SERVICE_PROPERTY, service);
     maxQueueSize = conf.getInt(QUEUE_SIZE, maxQueueSize);
     minSpanSize = conf.getInt(SPAN_MIN_MS, minSpanSize);
 
@@ -163,7 +181,7 @@ public abstract class AsyncSpanReceiver<SpanKey,Destination> implements SpanRece
       return;
     }
 
-    Map<String,String> data = convertToStrings(s.getKVAnnotations());
+    Map<String,String> data = s.getKVAnnotations();
 
     SpanKey dest = getSpanKey(data);
     if (dest != null) {
@@ -171,16 +189,16 @@ public abstract class AsyncSpanReceiver<SpanKey,Destination> implements SpanRece
       if (sendQueueSize.get() > maxQueueSize) {
         long now = System.currentTimeMillis();
         if (now - lastNotificationOfDroppedSpans > 60 * 1000) {
-          log.warn("Tracing spans are being dropped because there are already " + maxQueueSize
-              + " spans queued for delivery.\n"
+          log.warn("Tracing spans are being dropped because there are already"
+              + " {} spans queued for delivery.\n"
               + "This does not affect performance, security or data integrity,"
-              + " but distributed tracing information is being lost.");
+              + " but distributed tracing information is being lost.", maxQueueSize);
           lastNotificationOfDroppedSpans = now;
         }
         return;
       }
-      sendQueue.add(new RemoteSpan(host, service == null ? s.getProcessId() : service,
-          s.getTraceId(), s.getSpanId(), s.getParentId(), s.getStartTimeMillis(),
+      sendQueue.add(new RemoteSpan(host, service == null ? processId : service, s.getTraceId(),
+          s.getSpanId(), Longs.asList(s.getParents()), s.getStartTimeMillis(),
           s.getStopTimeMillis(), s.getDescription(), data, annotations));
       sendQueueSize.incrementAndGet();
     }

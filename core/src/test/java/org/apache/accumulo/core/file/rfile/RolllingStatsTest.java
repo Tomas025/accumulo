@@ -1,25 +1,28 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
-
 package org.apache.accumulo.core.file.rfile;
 
 import static org.junit.Assert.assertTrue;
 
+import java.security.SecureRandom;
 import java.util.Random;
+import java.util.function.IntSupplier;
 
 import org.apache.commons.math3.distribution.NormalDistribution;
 import org.apache.commons.math3.distribution.ZipfDistribution;
@@ -59,7 +62,7 @@ public class RolllingStatsTest {
 
   private static class StatTester {
 
-    Random rand = new Random(42);
+    Random rand = new SecureRandom();
     private DescriptiveStatistics ds;
     private RollingStats rs;
     private RollingStats rsp;
@@ -91,8 +94,8 @@ public class RolllingStatsTest {
   @Test
   public void testFewSizes() {
     StatTester st = new StatTester(1019);
-    int[] keySizes = new int[] {103, 113, 123, 2345};
-    Random rand = new Random(42);
+    int[] keySizes = {103, 113, 123, 2345};
+    Random rand = new SecureRandom();
     for (int i = 0; i < 10000; i++) {
       st.addValue(keySizes[rand.nextInt(keySizes.length)]);
     }
@@ -118,7 +121,7 @@ public class RolllingStatsTest {
 
       StatTester st = new StatTester(windowSize);
 
-      Random rand = new Random();
+      Random rand = new SecureRandom();
 
       for (int i = 0; i < 1000; i++) {
         int v = 200 + rand.nextInt(50);
@@ -148,34 +151,32 @@ public class RolllingStatsTest {
     st.check();
   }
 
-  @Test
-  public void testZipf() {
-    ZipfDistribution zd = new ZipfDistribution(new Well19937c(42), 1000, 2);
+  private void testDistribrution(IntSupplier d) {
     StatTester st = new StatTester(2017);
 
     for (int i = 0; i < 7000; i++) {
-      st.addValue(zd.sample() * 100);
+      st.addValue(d.getAsInt());
     }
 
     st.check();
+  }
+
+  @Test
+  public void testZipf() {
+    ZipfDistribution zd = new ZipfDistribution(new Well19937c(42), 1000, 2);
+    testDistribrution(() -> zd.sample() * 100);
   }
 
   @Test
   public void testNormal() {
     NormalDistribution nd = new NormalDistribution(new Well19937c(42), 200, 20);
-    StatTester st = new StatTester(2017);
-
-    for (int i = 0; i < 7000; i++) {
-      st.addValue((int) nd.sample());
-    }
-
-    st.check();
+    testDistribrution(() -> (int) nd.sample());
   }
 
   @Test
   public void testSpikes() {
 
-    Random rand = new Random();
+    Random rand = new SecureRandom();
 
     StatTester st = new StatTester(3017);
 

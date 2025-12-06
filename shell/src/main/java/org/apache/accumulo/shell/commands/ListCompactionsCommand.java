@@ -1,23 +1,26 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.shell.commands;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Stream;
 
 import org.apache.accumulo.core.client.admin.InstanceOperations;
 import org.apache.accumulo.shell.Shell;
@@ -28,7 +31,7 @@ import org.apache.commons.cli.Options;
 
 public class ListCompactionsCommand extends Command {
 
-  private Option tserverOption, disablePaginationOpt;
+  private Option tserverOption, disablePaginationOpt, filterOption;
 
   @Override
   public String description() {
@@ -42,8 +45,9 @@ public class ListCompactionsCommand extends Command {
       throws Exception {
 
     List<String> tservers;
+    String filterText = null;
 
-    final InstanceOperations instanceOps = shellState.getConnector().instanceOperations();
+    final InstanceOperations instanceOps = shellState.getAccumuloClient().instanceOperations();
 
     final boolean paginate = !cl.hasOption(disablePaginationOpt.getOpt());
 
@@ -54,7 +58,17 @@ public class ListCompactionsCommand extends Command {
       tservers = instanceOps.getTabletServers();
     }
 
-    shellState.printLines(new ActiveCompactionIterator(tservers, instanceOps), paginate);
+    if (cl.hasOption(filterOption.getOpt())) {
+      filterText = ".*" + cl.getOptionValue(filterOption.getOpt()) + ".*";
+    }
+
+    Stream<String> activeCompactionStream = ActiveCompactionHelper.stream(tservers, instanceOps);
+    if (filterText != null) {
+      final String finalFilterText = filterText;
+      activeCompactionStream = activeCompactionStream.filter(t -> t.matches(finalFilterText));
+    }
+
+    shellState.printLines(activeCompactionStream.iterator(), paginate);
 
     return 0;
   }
@@ -67,6 +81,8 @@ public class ListCompactionsCommand extends Command {
   @Override
   public Options getOptions() {
     final Options opts = new Options();
+    filterOption = new Option("f", "filter", true, "show only compactions that match the regex");
+    opts.addOption(filterOption);
 
     tserverOption = new Option("ts", "tabletServer", true, "tablet server to list compactions for");
     tserverOption.setArgName("tablet server");

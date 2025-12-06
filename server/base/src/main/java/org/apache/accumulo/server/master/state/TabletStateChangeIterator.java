@@ -1,22 +1,22 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.server.master.state;
-
-import static java.nio.charset.StandardCharsets.UTF_8;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -32,14 +32,17 @@ import java.util.Set;
 
 import org.apache.accumulo.core.client.IteratorSetting;
 import org.apache.accumulo.core.data.Key;
+import org.apache.accumulo.core.data.TableId;
 import org.apache.accumulo.core.data.Value;
-import org.apache.accumulo.core.data.impl.KeyExtent;
+import org.apache.accumulo.core.dataImpl.KeyExtent;
 import org.apache.accumulo.core.iterators.IteratorEnvironment;
 import org.apache.accumulo.core.iterators.SkippingIterator;
 import org.apache.accumulo.core.iterators.SortedKeyValueIterator;
 import org.apache.accumulo.core.master.thrift.MasterState;
+import org.apache.accumulo.core.metadata.TServerInstance;
+import org.apache.accumulo.core.metadata.TabletLocationState;
+import org.apache.accumulo.core.metadata.TabletLocationState.BadLocationStateException;
 import org.apache.accumulo.core.util.AddressUtil;
-import org.apache.accumulo.server.master.state.TabletLocationState.BadLocationStateException;
 import org.apache.hadoop.io.DataInputBuffer;
 import org.apache.hadoop.io.DataOutputBuffer;
 import org.slf4j.Logger;
@@ -59,8 +62,8 @@ public class TabletStateChangeIterator extends SkippingIterator {
   private static final Logger log = LoggerFactory.getLogger(TabletStateChangeIterator.class);
 
   private Set<TServerInstance> current;
-  private Set<String> onlineTables;
-  private Map<String,MergeInfo> merges;
+  private Set<TableId> onlineTables;
+  private Map<TableId,MergeInfo> merges;
   private boolean debug = false;
   private Set<KeyExtent> migrations;
   private MasterState masterState = MasterState.NORMAL;
@@ -70,7 +73,7 @@ public class TabletStateChangeIterator extends SkippingIterator {
       IteratorEnvironment env) throws IOException {
     super.init(source, options, env);
     current = parseServers(options.get(SERVERS_OPTION));
-    onlineTables = parseTables(options.get(TABLES_OPTION));
+    onlineTables = parseTableIDs(options.get(TABLES_OPTION));
     merges = parseMerges(options.get(MERGES_OPTION));
     debug = options.containsKey(DEBUG_OPTION);
     migrations = parseMigrations(options.get(MIGRATIONS_OPTION));
@@ -78,7 +81,7 @@ public class TabletStateChangeIterator extends SkippingIterator {
       masterState = MasterState.valueOf(options.get(MASTER_STATE_OPTION));
     } catch (Exception ex) {
       if (options.get(MASTER_STATE_OPTION) != null) {
-        log.error("Unable to decode masterState " + options.get(MASTER_STATE_OPTION));
+        log.error("Unable to decode masterState {}", options.get(MASTER_STATE_OPTION));
       }
     }
     Set<TServerInstance> shuttingDown = parseServers(options.get(SHUTTING_DOWN_OPTION));
@@ -93,12 +96,10 @@ public class TabletStateChangeIterator extends SkippingIterator {
     try {
       Set<KeyExtent> result = new HashSet<>();
       DataInputBuffer buffer = new DataInputBuffer();
-      byte[] data = Base64.getDecoder().decode(migrations.getBytes(UTF_8));
+      byte[] data = Base64.getDecoder().decode(migrations);
       buffer.reset(data, data.length);
       while (buffer.available() > 0) {
-        KeyExtent extent = new KeyExtent();
-        extent.readFields(buffer);
-        result.add(extent);
+        result.add(KeyExtent.readFrom(buffer));
       }
       return result;
     } catch (Exception ex) {
@@ -106,12 +107,12 @@ public class TabletStateChangeIterator extends SkippingIterator {
     }
   }
 
-  private Set<String> parseTables(String tables) {
-    if (tables == null)
+  private Set<TableId> parseTableIDs(String tableIDs) {
+    if (tableIDs == null)
       return null;
-    Set<String> result = new HashSet<>();
-    for (String table : tables.split(","))
-      result.add(table);
+    Set<TableId> result = new HashSet<>();
+    for (String tableID : tableIDs.split(","))
+      result.add(TableId.of(tableID));
     return result;
   }
 
@@ -120,9 +121,9 @@ public class TabletStateChangeIterator extends SkippingIterator {
       return null;
     // parse "host:port[INSTANCE]"
     Set<TServerInstance> result = new HashSet<>();
-    if (servers.length() > 0) {
+    if (!servers.isEmpty()) {
       for (String part : servers.split(",")) {
-        String parts[] = part.split("\\[", 2);
+        String[] parts = part.split("\\[", 2);
         String hostport = parts[0];
         String instance = parts[1];
         if (instance != null && instance.endsWith("]"))
@@ -133,18 +134,18 @@ public class TabletStateChangeIterator extends SkippingIterator {
     return result;
   }
 
-  private Map<String,MergeInfo> parseMerges(String merges) {
+  private Map<TableId,MergeInfo> parseMerges(String merges) {
     if (merges == null)
       return null;
     try {
-      Map<String,MergeInfo> result = new HashMap<>();
+      Map<TableId,MergeInfo> result = new HashMap<>();
       DataInputBuffer buffer = new DataInputBuffer();
-      byte[] data = Base64.getDecoder().decode(merges.getBytes(UTF_8));
+      byte[] data = Base64.getDecoder().decode(merges);
       buffer.reset(data, data.length);
       while (buffer.available() > 0) {
         MergeInfo mergeInfo = new MergeInfo();
         mergeInfo.readFields(buffer);
-        result.put(mergeInfo.extent.getTableId(), mergeInfo);
+        result.put(mergeInfo.extent.tableId(), mergeInfo);
       }
       return result;
     } catch (Exception ex) {
@@ -171,7 +172,7 @@ public class TabletStateChangeIterator extends SkippingIterator {
         return;
       }
       // we always want data about merges
-      MergeInfo merge = merges.get(tls.extent.getTableId());
+      MergeInfo merge = merges.get(tls.extent.tableId());
       if (merge != null) {
         // could make this smarter by only returning if the tablet is involved in the merge
         return;
@@ -182,11 +183,11 @@ public class TabletStateChangeIterator extends SkippingIterator {
       }
 
       // is the table supposed to be online or offline?
-      boolean shouldBeOnline = onlineTables.contains(tls.extent.getTableId());
+      boolean shouldBeOnline = onlineTables.contains(tls.extent.tableId());
 
       if (debug) {
-        log.debug(tls.extent + " is " + tls.getState(current) + " and should be "
-            + (shouldBeOnline ? "on" : "off") + "line");
+        log.debug("{} is {} and should be {} line", tls.extent, tls.getState(current),
+            (shouldBeOnline ? "on" : "off"));
       }
       switch (tls.getState(current)) {
         case ASSIGNED:
@@ -221,12 +222,12 @@ public class TabletStateChangeIterator extends SkippingIterator {
     if (goodServers != null) {
       List<String> servers = new ArrayList<>();
       for (TServerInstance server : goodServers)
-        servers.add(server.toString());
+        servers.add(server.getHostPortSession());
       cfg.addOption(SERVERS_OPTION, Joiner.on(",").join(servers));
     }
   }
 
-  public static void setOnlineTables(IteratorSetting cfg, Set<String> onlineTables) {
+  public static void setOnlineTables(IteratorSetting cfg, Set<TableId> onlineTables) {
     if (onlineTables != null)
       cfg.addOption(TABLES_OPTION, Joiner.on(",").join(onlineTables));
   }
@@ -252,7 +253,7 @@ public class TabletStateChangeIterator extends SkippingIterator {
     DataOutputBuffer buffer = new DataOutputBuffer();
     try {
       for (KeyExtent extent : migrations) {
-        extent.write(buffer);
+        extent.writeTo(buffer);
       }
     } catch (Exception ex) {
       throw new RuntimeException(ex);
@@ -268,10 +269,6 @@ public class TabletStateChangeIterator extends SkippingIterator {
 
   public static void setShuttingDown(IteratorSetting cfg, Set<TServerInstance> servers) {
     if (servers != null) {
-      List<String> serverList = new ArrayList<>();
-      for (TServerInstance server : servers) {
-        serverList.add(server.toString());
-      }
       cfg.addOption(SHUTTING_DOWN_OPTION, Joiner.on(",").join(servers));
     }
   }

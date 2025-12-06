@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.server.security;
 
@@ -27,13 +29,9 @@ import org.apache.hadoop.security.UserGroupInformation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- *
- */
 public class SecurityUtil {
   private static final Logger log = LoggerFactory.getLogger(SecurityUtil.class);
   private static final Logger renewalLog = LoggerFactory.getLogger("KerberosTicketRenewal");
-  public static boolean usingKerberos = false;
 
   /**
    * This method is for logging a server in kerberos. If this is used in client code, it will fail
@@ -46,7 +44,7 @@ public class SecurityUtil {
 
   /**
    * Performs a Kerberos login using the given Kerberos principal and keytab if they are non-null
-   * and positive length Strings. This method automaticallys spawns a thread to renew the given
+   * and positive length Strings. This method automatically spawns a thread to renew the given
    * ticket upon successful login using {@link Property#GENERAL_KERBEROS_RENEWAL_PERIOD} as the
    * renewal period. This method does nothing if either {@code keyTab} or {@code principal} are null
    * or of zero length.
@@ -59,13 +57,11 @@ public class SecurityUtil {
    *          The Kerberos principal
    */
   public static void serverLogin(AccumuloConfiguration acuConf, String keyTab, String principal) {
-    if (keyTab == null || keyTab.length() == 0)
+    if (keyTab == null || keyTab.isEmpty())
       return;
 
-    if (principal == null || principal.length() == 0)
+    if (principal == null || principal.isEmpty())
       return;
-
-    usingKerberos = true;
 
     if (login(principal, keyTab)) {
       try {
@@ -93,11 +89,11 @@ public class SecurityUtil {
   static boolean login(String principalConfig, String keyTabPath) {
     try {
       String principalName = getServerPrincipal(principalConfig);
-      if (keyTabPath != null && principalName != null && keyTabPath.length() != 0
-          && principalName.length() != 0) {
-        log.info("Attempting to login with keytab as " + principalName);
+      if (keyTabPath != null && principalName != null && !keyTabPath.isEmpty()
+          && !principalName.isEmpty()) {
+        log.info("Attempting to login with keytab as {}", principalName);
         UserGroupInformation.loginUserFromKeytab(principalName, keyTabPath);
-        log.info("Succesfully logged in as user " + principalName);
+        log.info("Succesfully logged in as user {}", principalName);
         return true;
       }
     } catch (IOException io) {

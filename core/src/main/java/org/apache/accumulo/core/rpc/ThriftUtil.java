@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.core.rpc;
 
@@ -20,6 +22,7 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.security.KeyStore;
+import java.security.SecureRandom;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
@@ -30,8 +33,8 @@ import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManagerFactory;
 
-import org.apache.accumulo.core.client.impl.ClientContext;
-import org.apache.accumulo.core.client.impl.ThriftTransportPool;
+import org.apache.accumulo.core.clientImpl.ClientContext;
+import org.apache.accumulo.core.clientImpl.ThriftTransportPool;
 import org.apache.accumulo.core.rpc.SaslConnectionParams.SaslMechanism;
 import org.apache.accumulo.core.tabletserver.thrift.TabletClientService;
 import org.apache.accumulo.core.util.HostAndPort;
@@ -51,6 +54,8 @@ import org.apache.thrift.transport.TTransportFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+
 /**
  * Factory methods for creating Thrift client objects
  */
@@ -64,7 +69,7 @@ public class ThriftUtil {
 
   public static final String GSSAPI = "GSSAPI", DIGEST_MD5 = "DIGEST-MD5";
 
-  private static final Random SASL_BACKOFF_RAND = new Random();
+  private static final Random SASL_BACKOFF_RAND = new SecureRandom();
   private static final int RELOGIN_MAX_BACKOFF = 5000;
 
   /**
@@ -130,7 +135,7 @@ public class ThriftUtil {
 
   /**
    * Create a Thrift client using the given factory with a pooled transport (if available) using the
-   * address, client context and timeou
+   * address, client context and timeout
    *
    * @param factory
    *          Thrift client factory
@@ -249,7 +254,7 @@ public class ThriftUtil {
       if (sslParams != null) {
         // The check in AccumuloServerContext ensures that servers are brought up with sane
         // configurations, but we also want to validate clients
-        if (null != saslParams) {
+        if (saslParams != null) {
           throw new IllegalStateException("Cannot use both SSL and SASL");
         }
 
@@ -282,7 +287,7 @@ public class ThriftUtil {
         }
 
         transport = ThriftUtil.transportFactory().getTransport(transport);
-      } else if (null != saslParams) {
+      } else if (saslParams != null) {
         if (!UserGroupInformation.isSecurityEnabled()) {
           throw new IllegalStateException(
               "Expected Kerberos security to be enabled if SASL is in use");
@@ -302,7 +307,7 @@ public class ThriftUtil {
           // Log in via UGI, ensures we have logged in with our KRB credentials
           final UserGroupInformation currentUser = UserGroupInformation.getCurrentUser();
           final UserGroupInformation userForRpc;
-          if (AuthenticationMethod.PROXY == currentUser.getAuthenticationMethod()) {
+          if (currentUser.getAuthenticationMethod() == AuthenticationMethod.PROXY) {
             // A "proxy" user is when the real (Kerberos) credentials are for a user
             // other than the one we're acting as. When we make an RPC though, we need to make sure
             // that the current user is the user that has some credentials.
@@ -367,7 +372,7 @@ public class ThriftUtil {
           try {
             transport = TTimeoutTransport.create(address, timeout);
           } catch (IOException ex) {
-            log.warn("Failed to open transport to " + address);
+            log.warn("Failed to open transport to {}", address);
             throw new TTransportException(ex);
           }
 
@@ -400,7 +405,7 @@ public class ThriftUtil {
   static void attemptClientReLogin() {
     try {
       UserGroupInformation loginUser = UserGroupInformation.getLoginUser();
-      if (null == loginUser || !loginUser.hasKerberosCredentials()) {
+      if (loginUser == null || !loginUser.hasKerberosCredentials()) {
         // We should have already checked that we're logged in and have credentials. A
         // precondition-like check.
         throw new RuntimeException("Expected to find Kerberos UGI credentials, but did not");
@@ -441,12 +446,14 @@ public class ThriftUtil {
 
   /**
    * Lifted from TSSLTransportFactory in Thrift-0.9.1. The method to create a client socket with an
-   * SSLContextFactory object is not visibile to us. Have to use SslConnectionParams instead of
+   * SSLContextFactory object is not visible to us. Have to use SslConnectionParams instead of
    * TSSLTransportParameters because no getters exist on TSSLTransportParameters.
    *
    * @param params
    *          Parameters to use to create the SSLContext
    */
+  @SuppressFBWarnings(value = "PATH_TRAVERSAL_IN",
+      justification = "code runs in same security context as user who providing the keystore files")
   private static SSLContext createSSLContext(SslConnectionParams params)
       throws TTransportException {
     SSLContext ctx;

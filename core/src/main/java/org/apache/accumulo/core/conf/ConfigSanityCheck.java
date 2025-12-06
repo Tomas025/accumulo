@@ -1,25 +1,32 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.core.conf;
 
+import java.io.IOException;
 import java.util.Map.Entry;
+import java.util.Objects;
 
+import org.apache.accumulo.core.spi.crypto.CryptoService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.google.common.base.Preconditions;
 
 /**
  * A utility class for validating {@link AccumuloConfiguration} instances.
@@ -28,10 +35,6 @@ public class ConfigSanityCheck {
 
   private static final Logger log = LoggerFactory.getLogger(ConfigSanityCheck.class);
   private static final String PREFIX = "BAD CONFIG ";
-  @SuppressWarnings("deprecation")
-  private static final Property INSTANCE_DFS_URI = Property.INSTANCE_DFS_URI;
-  @SuppressWarnings("deprecation")
-  private static final Property INSTANCE_DFS_DIR = Property.INSTANCE_DFS_DIR;
 
   /**
    * Validates the given configuration entries. A valid configuration contains only valid properties
@@ -46,7 +49,6 @@ public class ConfigSanityCheck {
    */
   public static void validate(Iterable<Entry<String,String>> entries) {
     String instanceZkTimeoutValue = null;
-    boolean usingVolumes = false;
     for (Entry<String,String> entry : entries) {
       String key = entry.getKey();
       String value = entry.getValue();
@@ -65,19 +67,24 @@ public class ConfigSanityCheck {
         instanceZkTimeoutValue = value;
       }
 
-      if (key.equals(Property.INSTANCE_VOLUMES.getKey())) {
-        usingVolumes = value != null && !value.isEmpty();
+      // If the block size or block size index is configured to be too large, we throw an exception
+      // to avoid potentially corrupting RFiles later
+      if (key.equals(Property.TABLE_FILE_COMPRESSED_BLOCK_SIZE_INDEX.getKey())
+          || key.equals(Property.TABLE_FILE_COMPRESSED_BLOCK_SIZE.getKey())) {
+        long bsize = ConfigurationTypeHelper.getFixedMemoryAsBytes(value);
+        Preconditions.checkArgument(bsize > 0 && bsize < Integer.MAX_VALUE, key
+            + " must be greater than 0 and less than " + Integer.MAX_VALUE + " but was: " + bsize);
+      }
+
+      if (key.equals(Property.INSTANCE_CRYPTO_SERVICE.getKey())) {
+        String cryptoStrategy = Objects.requireNonNull(value);
+        verifyValidClassName(key, cryptoStrategy, CryptoService.class);
       }
     }
 
     if (instanceZkTimeoutValue != null) {
       checkTimeDuration(Property.INSTANCE_ZK_TIMEOUT, instanceZkTimeoutValue,
           new CheckTimeDurationBetween(1000, 300000));
-    }
-
-    if (!usingVolumes) {
-      log.warn("Use of " + INSTANCE_DFS_URI + " and " + INSTANCE_DFS_DIR
-          + " are deprecated. Consider using " + Property.INSTANCE_VOLUMES + " instead.");
     }
   }
 
@@ -108,7 +115,7 @@ public class ConfigSanityCheck {
 
   private static void checkTimeDuration(Property prop, String value, CheckTimeDuration chk) {
     verifyPropertyTypes(PropertyType.TIMEDURATION, prop);
-    if (!chk.check(AccumuloConfiguration.getTimeInMillis(value)))
+    if (!chk.check(ConfigurationTypeHelper.getTimeInMillis(value)))
       fatal(PREFIX + chk.getDescription(prop));
   }
 
@@ -137,5 +144,27 @@ public class ConfigSanityCheck {
     // compatibility
     log.error("FATAL: {}", msg);
     throw new SanityCheckException(msg);
+  }
+
+  /**
+   * Verifies a configured option is a legal class and has a required base class.
+   *
+   * @param confOption
+   *          The Property key name
+   * @param className
+   *          The Property value, the string representation of a class to be loaded
+   * @param requiredBaseClass
+   *          The base class required for the className
+   */
+  private static void verifyValidClassName(String confOption, String className,
+      Class<?> requiredBaseClass) {
+    try {
+      ConfigurationTypeHelper.getClassInstance(null, className, requiredBaseClass);
+    } catch (IOException | ReflectiveOperationException e) {
+      fatal(confOption + " has an invalid class name: " + className);
+    } catch (ClassCastException e) {
+      fatal(confOption + " must implement " + requiredBaseClass
+          + ", but the configured class does not: " + className);
+    }
   }
 }

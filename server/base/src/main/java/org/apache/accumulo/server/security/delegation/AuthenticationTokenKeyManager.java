@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.server.security.delegation;
 
@@ -113,9 +115,9 @@ public class AuthenticationTokenKeyManager extends Daemon {
 
         // Try to use the last key instead of creating a new one right away. This will present more
         // expected
-        // functionality if the active master happens to die for some reasonn
+        // functionality if the active master happens to die for some reason
         AuthenticationKey currentKey = secretManager.getCurrentKey();
-        if (null != currentKey) {
+        if (currentKey != null) {
           log.info("Updating last key update to {} from current secret manager key",
               currentKey.getCreationDate());
           lastKeyUpdate = currentKey.getCreationDate();
@@ -156,7 +158,7 @@ public class AuthenticationTokenKeyManager extends Daemon {
       AuthenticationKey newKey = new AuthenticationKey(++idSeq, now, now + tokenMaxLifetime,
           secretManager.generateSecret());
 
-      log.debug("Created new {}", newKey.toString());
+      log.debug("Created new {}", newKey);
 
       // Will set to be the current key given the idSeq
       secretManager.addKey(newKey);

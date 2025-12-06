@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.minicluster;
 
@@ -24,8 +26,6 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Map;
 
-import org.apache.accumulo.core.client.Connector;
-import org.apache.accumulo.core.client.Instance;
 import org.apache.commons.io.FileUtils;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
@@ -39,6 +39,9 @@ import org.junit.rules.TestName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+
+@SuppressFBWarnings(value = "PATH_TRAVERSAL_IN", justification = "paths not set by user input")
 public class MiniAccumuloClusterExistingZooKeepersTest {
   private static final File BASE_DIR = new File(System.getProperty("user.dir")
       + "/target/mini-tests/" + MiniAccumuloClusterExistingZooKeepersTest.class.getName());
@@ -60,6 +63,8 @@ public class MiniAccumuloClusterExistingZooKeepersTest {
     FileUtils.deleteQuietly(testDir);
     assertTrue(testDir.mkdir());
 
+    // disable adminServer, which runs on port 8080 by default and we don't need
+    System.setProperty("zookeeper.admin.enableServer", "false");
     zooKeeper = new TestingServer();
 
     MiniAccumuloConfig config = new MiniAccumuloConfig(testDir, SECRET);
@@ -87,19 +92,19 @@ public class MiniAccumuloClusterExistingZooKeepersTest {
     }
   }
 
+  @SuppressWarnings("deprecation")
   @Test
   public void canConnectViaExistingZooKeeper() throws Exception {
-    Connector conn = accumulo.getConnector("root", SECRET);
-    Instance instance = conn.getInstance();
-    assertEquals(zooKeeper.getConnectString(), instance.getZooKeepers());
+    org.apache.accumulo.core.client.Connector conn = accumulo.getConnector("root", SECRET);
+    assertEquals(zooKeeper.getConnectString(), conn.getInstance().getZooKeepers());
 
     String tableName = "foo";
     conn.tableOperations().create(tableName);
     Map<String,String> tableIds = conn.tableOperations().tableIdMap();
     assertTrue(tableIds.containsKey(tableName));
 
-    String zkTablePath = String.format("/accumulo/%s/tables/%s/name", instance.getInstanceID(),
-        tableIds.get(tableName));
+    String zkTablePath = String.format("/accumulo/%s/tables/%s/name",
+        conn.getInstance().getInstanceID(), tableIds.get(tableName));
     try (CuratorFramework client =
         CuratorFrameworkFactory.newClient(zooKeeper.getConnectString(), new RetryOneTime(1))) {
       client.start();

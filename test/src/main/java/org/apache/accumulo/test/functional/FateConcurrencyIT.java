@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.test.functional;
 
@@ -21,31 +23,34 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import org.apache.accumulo.core.Constants;
+import org.apache.accumulo.core.client.Accumulo;
+import org.apache.accumulo.core.client.AccumuloClient;
 import org.apache.accumulo.core.client.AccumuloException;
 import org.apache.accumulo.core.client.AccumuloSecurityException;
-import org.apache.accumulo.core.client.Connector;
-import org.apache.accumulo.core.client.Instance;
 import org.apache.accumulo.core.client.TableNotFoundException;
-import org.apache.accumulo.core.client.impl.Tables;
+import org.apache.accumulo.core.clientImpl.ClientContext;
+import org.apache.accumulo.core.clientImpl.Tables;
 import org.apache.accumulo.core.conf.Property;
+import org.apache.accumulo.core.data.TableId;
 import org.apache.accumulo.core.master.state.tables.TableState;
-import org.apache.accumulo.core.zookeeper.ZooUtil;
 import org.apache.accumulo.fate.AdminUtil;
 import org.apache.accumulo.fate.ZooStore;
-import org.apache.accumulo.fate.zookeeper.IZooReaderWriter;
+import org.apache.accumulo.fate.zookeeper.ZooReaderWriter;
+import org.apache.accumulo.fate.zookeeper.ZooUtil;
 import org.apache.accumulo.harness.AccumuloClusterHarness;
-import org.apache.accumulo.server.zookeeper.ZooReaderWriterFactory;
 import org.apache.accumulo.test.util.SlowOps;
 import org.apache.zookeeper.KeeperException;
+import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.Test;
@@ -70,30 +75,28 @@ public class FateConcurrencyIT extends AccumuloClusterHarness {
   private static final int NUM_ROWS = 1000;
   private static final long SLOW_SCAN_SLEEP_MS = 250L;
 
-  private Connector connector;
+  private AccumuloClient client;
+  private ClientContext context;
 
   private static final ExecutorService pool = Executors.newCachedThreadPool();
 
-  private String tableName;
-
   private String secret;
 
-  private long maxWait;
+  private long maxWaitMillis;
 
   private SlowOps slowOps;
 
   @Before
   public void setup() {
-
-    connector = getConnector();
-
-    tableName = getUniqueNames(1)[0];
-
+    client = Accumulo.newClient().from(getClientProps()).build();
+    context = (ClientContext) client;
     secret = cluster.getSiteConfiguration().get(Property.INSTANCE_SECRET);
+    maxWaitMillis = Math.max(60_000, defaultTimeoutSeconds() * 1000 / 2);
+  }
 
-    maxWait = defaultTimeoutSeconds() <= 0 ? 60_000 : ((defaultTimeoutSeconds() * 1000) / 2);
-
-    slowOps = new SlowOps(connector, tableName, maxWait, 1);
+  @After
+  public void closeClient() {
+    client.close();
   }
 
   @AfterClass
@@ -118,6 +121,9 @@ public class FateConcurrencyIT extends AccumuloClusterHarness {
    */
   @Test
   public void changeTableStateTest() throws Exception {
+    String tableName = getUniqueNames(1)[0];
+    SlowOps.setExpectedCompactions(client, 1);
+    slowOps = new SlowOps(client, tableName, maxWaitMillis);
 
     assertEquals("verify table online after created", TableState.ONLINE, getTableState(tableName));
 
@@ -134,7 +140,7 @@ public class FateConcurrencyIT extends AccumuloClusterHarness {
 
     // verify that offline then online functions as expected.
 
-    connector.tableOperations().offline(tableName, true);
+    client.tableOperations().offline(tableName, true);
     assertEquals("verify table is offline", TableState.OFFLINE, getTableState(tableName));
 
     onlineOp = new OnLineCallable(tableName);
@@ -169,7 +175,7 @@ public class FateConcurrencyIT extends AccumuloClusterHarness {
     assertTrue("Find FATE operation for table", findFate(tableName));
 
     // test complete, cancel compaction and move on.
-    connector.tableOperations().cancelCompaction(tableName);
+    client.tableOperations().cancelCompaction(tableName);
 
     log.debug("Success: Timing results for online commands.");
     log.debug("Time for unblocked online {} ms",
@@ -185,14 +191,13 @@ public class FateConcurrencyIT extends AccumuloClusterHarness {
   }
 
   private boolean findFate(String aTableName) {
-
+    log.debug("Look for fate {}", aTableName);
     for (int retry = 0; retry < 5; retry++) {
-
       try {
         boolean found = lookupFateInZookeeper(aTableName);
         log.trace("Try {}: Fate in zk for table {} : {}", retry, aTableName, found);
         if (found) {
-          log.trace("found for {}", aTableName);
+          log.debug("Found fate {}", aTableName);
           return true;
         } else {
           Thread.sleep(150);
@@ -214,16 +219,18 @@ public class FateConcurrencyIT extends AccumuloClusterHarness {
    */
   @Test
   public void getFateStatus() {
+    SlowOps.setExpectedCompactions(client, 1);
+    String tableName = getUniqueNames(1)[0];
+    slowOps = new SlowOps(client, tableName, maxWaitMillis);
 
-    Instance instance = connector.getInstance();
-    String tableId;
+    TableId tableId;
 
     try {
 
       assertEquals("verify table online after created", TableState.ONLINE,
           getTableState(tableName));
 
-      tableId = Tables.getTableId(instance, tableName);
+      tableId = Tables.getTableId(context, tableName);
 
       log.trace("tid: {}", tableId);
 
@@ -245,13 +252,13 @@ public class FateConcurrencyIT extends AccumuloClusterHarness {
 
       try {
 
-        IZooReaderWriter zk = new ZooReaderWriterFactory().getZooReaderWriter(
-            instance.getZooKeepers(), instance.getZooKeepersSessionTimeOut(), secret);
-
-        ZooStore<String> zs = new ZooStore<>(ZooUtil.getRoot(instance) + Constants.ZFATE, zk);
+        String instanceId = context.getInstanceID();
+        ZooReaderWriter zk = new ZooReaderWriter(context.getZooKeepers(),
+            context.getZooKeepersSessionTimeOut(), secret);
+        ZooStore<String> zs = new ZooStore<>(ZooUtil.getRoot(instanceId) + Constants.ZFATE, zk);
 
         withLocks = admin.getStatus(zs, zk,
-            ZooUtil.getRoot(instance) + Constants.ZTABLE_LOCKS + "/" + tableId, null, null);
+            ZooUtil.getRoot(instanceId) + Constants.ZTABLE_LOCKS + "/" + tableId, null, null);
 
         // call method that does not use locks.
         noLocks = admin.getTransactionStatus(zs, null, null);
@@ -301,7 +308,7 @@ public class FateConcurrencyIT extends AccumuloClusterHarness {
     try {
 
       // test complete, cancel compaction and move on.
-      connector.tableOperations().cancelCompaction(tableName);
+      client.tableOperations().cancelCompaction(tableName);
 
       // block if compaction still running
       boolean cancelled = slowOps.blockWhileCompactionRunning();
@@ -329,20 +336,20 @@ public class FateConcurrencyIT extends AccumuloClusterHarness {
    */
   private boolean lookupFateInZookeeper(final String tableName) throws KeeperException {
 
-    Instance instance = connector.getInstance();
     AdminUtil<String> admin = new AdminUtil<>(false);
 
     try {
 
-      String tableId = Tables.getTableId(instance, tableName);
+      TableId tableId = Tables.getTableId(context, tableName);
 
       log.trace("tid: {}", tableId);
 
-      IZooReaderWriter zk = new ZooReaderWriterFactory().getZooReaderWriter(
-          instance.getZooKeepers(), instance.getZooKeepersSessionTimeOut(), secret);
-      ZooStore<String> zs = new ZooStore<>(ZooUtil.getRoot(instance) + Constants.ZFATE, zk);
+      String instanceId = context.getInstanceID();
+      ZooReaderWriter zk = new ZooReaderWriter(context.getZooKeepers(),
+          context.getZooKeepersSessionTimeOut(), secret);
+      ZooStore<String> zs = new ZooStore<>(ZooUtil.getRoot(instanceId) + Constants.ZFATE, zk);
       AdminUtil.FateStatus fateStatus = admin.getStatus(zs, zk,
-          ZooUtil.getRoot(instance) + Constants.ZTABLE_LOCKS + "/" + tableId, null, null);
+          ZooUtil.getRoot(instanceId) + Constants.ZTABLE_LOCKS + "/" + tableId, null, null);
 
       log.trace("current fates: {}", fateStatus.getTransactions().size());
 
@@ -396,9 +403,9 @@ public class FateConcurrencyIT extends AccumuloClusterHarness {
    */
   private TableState getTableState(String tableName) throws TableNotFoundException {
 
-    String tableId = Tables.getTableId(connector.getInstance(), tableName);
+    TableId tableId = Tables.getTableId(context, tableName);
 
-    TableState tstate = Tables.getTableState(connector.getInstance(), tableId);
+    TableState tstate = Tables.getTableState(context, tableId);
 
     log.trace("tableName: '{}': tableId {}, current state: {}", tableName, tableId, tstate);
 
@@ -456,7 +463,7 @@ public class FateConcurrencyIT extends AccumuloClusterHarness {
 
       log.trace("Setting {} online", tableName);
 
-      connector.tableOperations().online(tableName, true);
+      client.tableOperations().online(tableName, true);
       // stop timing
       status.setComplete();
 
@@ -468,7 +475,7 @@ public class FateConcurrencyIT extends AccumuloClusterHarness {
   }
 
   /**
-   * Concurrency testing - ensure that tests are valid id multiple compactions are running. for
+   * Concurrency testing - ensure that tests are valid if multiple compactions are running. for
    * development testing - force transient condition that was failing this test so that we know if
    * multiple compactions are running, they are properly handled by the test code and the tests are
    * valid.
@@ -477,40 +484,28 @@ public class FateConcurrencyIT extends AccumuloClusterHarness {
   public void multipleCompactions() {
 
     int tableCount = 4;
+    SlowOps.setExpectedCompactions(client, tableCount);
 
-    List<SlowOps> tables = new ArrayList<>();
+    List<SlowOps> tables = Arrays.stream(getUniqueNames(tableCount))
+        .map(tableName -> new SlowOps(client, tableName, maxWaitMillis))
+        .collect(Collectors.toList());
+    tables.forEach(SlowOps::startCompactTask);
 
-    for (int i = 0; i < tableCount; i++) {
-      String uniqueName = getUniqueNames(1)[0] + "_" + i;
-      SlowOps gen = new SlowOps(connector, uniqueName, maxWait, tableCount);
-      tables.add(gen);
-      gen.startCompactTask();
-    }
+    assertEquals(tableCount,
+        tables.stream().map(SlowOps::getTableName).filter(this::findFate).count());
 
-    int foundCount = 0;
-
-    for (SlowOps t : tables) {
-      log.debug("Look for fate {}", t.getTableName());
-      if (findFate(t.getTableName())) {
-        log.debug("Found fate {}", t.getTableName());
-        foundCount++;
-      }
-    }
-
-    assertEquals(tableCount, foundCount);
-
-    for (SlowOps t : tables) {
+    tables.forEach(t -> {
       try {
-        connector.tableOperations().cancelCompaction(t.getTableName());
-        // block if compaction still running
-        boolean cancelled = t.blockWhileCompactionRunning();
-        if (!cancelled) {
-          log.info("Failed to cancel compaction during multiple compaction test clean-up for {}",
-              t.getTableName());
-        }
+        client.tableOperations().cancelCompaction(t.getTableName());
       } catch (AccumuloSecurityException | TableNotFoundException | AccumuloException ex) {
         log.debug("Exception throw during multiple table test clean-up", ex);
       }
-    }
+      // block if compaction still running
+      boolean cancelled = t.blockWhileCompactionRunning();
+      if (!cancelled) {
+        log.info("Failed to cancel compaction during multiple compaction test clean-up for {}",
+            t.getTableName());
+      }
+    });
   }
 }

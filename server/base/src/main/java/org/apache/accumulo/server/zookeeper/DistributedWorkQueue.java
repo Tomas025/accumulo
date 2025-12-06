@@ -1,23 +1,26 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.server.zookeeper;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -27,6 +30,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.accumulo.core.conf.AccumuloConfiguration;
+import org.apache.accumulo.fate.zookeeper.ZooReaderWriter;
 import org.apache.accumulo.fate.zookeeper.ZooUtil.NodeExistsPolicy;
 import org.apache.accumulo.fate.zookeeper.ZooUtil.NodeMissingPolicy;
 import org.apache.accumulo.server.util.time.SimpleTimer;
@@ -51,7 +55,7 @@ public class DistributedWorkQueue {
   private static final Logger log = LoggerFactory.getLogger(DistributedWorkQueue.class);
 
   private ThreadPoolExecutor threadPool;
-  private ZooReaderWriter zoo = ZooReaderWriter.getInstance();
+  private ZooReaderWriter zoo;
   private String path;
   private AccumuloConfiguration config;
   private long timerInitialDelay, timerPeriod;
@@ -59,13 +63,13 @@ public class DistributedWorkQueue {
   private AtomicInteger numTask = new AtomicInteger(0);
 
   private void lookForWork(final Processor processor, List<String> children) {
-    if (children.size() == 0)
+    if (children.isEmpty())
       return;
 
     if (numTask.get() >= threadPool.getCorePoolSize())
       return;
 
-    Random random = new Random();
+    Random random = new SecureRandom();
     Collections.shuffle(children, random);
     try {
       for (final String child : children) {
@@ -98,7 +102,7 @@ public class DistributedWorkQueue {
           break;
         }
 
-        log.debug("got lock for " + child);
+        log.debug("got lock for {}", child);
 
         Runnable task = new Runnable() {
 
@@ -106,7 +110,7 @@ public class DistributedWorkQueue {
           public void run() {
             try {
               try {
-                processor.newProcessor().process(child, zoo.getData(childPath, null));
+                processor.newProcessor().process(child, zoo.getData(childPath));
 
                 // if the task fails, then its entry in the Q is not deleted... so it will be
                 // retried
@@ -160,7 +164,7 @@ public class DistributedWorkQueue {
 
   public DistributedWorkQueue(String path, AccumuloConfiguration config) {
     // Preserve the old delay and period
-    this(path, config, new Random().nextInt(60 * 1000), 60 * 1000);
+    this(path, config, new SecureRandom().nextInt(60 * 1000), 60 * 1000);
   }
 
   public DistributedWorkQueue(String path, AccumuloConfiguration config, long timerInitialDelay,
@@ -169,6 +173,11 @@ public class DistributedWorkQueue {
     this.config = config;
     this.timerInitialDelay = timerInitialDelay;
     this.timerPeriod = timerPeriod;
+    zoo = new ZooReaderWriter(config);
+  }
+
+  public ZooReaderWriter getZooReaderWriter() {
+    return zoo;
   }
 
   public void startProcessing(final Processor processor, ThreadPoolExecutor executorService)
@@ -193,15 +202,16 @@ public class DistributedWorkQueue {
                 log.info("Interrupted looking for work", e);
               }
             else
-              log.info("Unexpected path for NodeChildrenChanged event " + event.getPath());
+              log.info("Unexpected path for NodeChildrenChanged event {}", event.getPath());
             break;
           case NodeCreated:
           case NodeDataChanged:
           case NodeDeleted:
+          case ChildWatchRemoved:
+          case DataWatchRemoved:
           case None:
-            log.info("Got unexpected zookeeper event: " + event.getType() + " for " + path);
+            log.info("Got unexpected zookeeper event: {} for {}", event.getType(), path);
             break;
-
         }
       }
     });
@@ -212,7 +222,7 @@ public class DistributedWorkQueue {
     SimpleTimer.getInstance(config).schedule(new Runnable() {
       @Override
       public void run() {
-        log.debug("Looking for work in " + path);
+        log.debug("Looking for work in {}", path);
         try {
           lookForWork(processor, zoo.getChildren(path));
         } catch (KeeperException e) {
@@ -261,10 +271,11 @@ public class DistributedWorkQueue {
           case NodeCreated:
           case NodeDataChanged:
           case NodeDeleted:
+          case ChildWatchRemoved:
+          case DataWatchRemoved:
           case None:
-            log.info("Got unexpected zookeeper event: " + event.getType() + " for " + path);
+            log.info("Got unexpected zookeeper event: {} for {}", event.getType(), path);
             break;
-
         }
       }
     };
