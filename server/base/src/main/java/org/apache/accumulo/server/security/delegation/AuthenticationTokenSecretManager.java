@@ -7,15 +7,15 @@
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
-
 package org.apache.accumulo.server.security.delegation;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -30,10 +30,9 @@ import java.util.concurrent.TimeUnit;
 import javax.crypto.SecretKey;
 
 import org.apache.accumulo.core.client.AccumuloException;
-import org.apache.accumulo.core.client.Instance;
 import org.apache.accumulo.core.client.admin.DelegationTokenConfig;
-import org.apache.accumulo.core.client.impl.AuthenticationTokenIdentifier;
-import org.apache.accumulo.core.client.impl.DelegationTokenImpl;
+import org.apache.accumulo.core.clientImpl.AuthenticationTokenIdentifier;
+import org.apache.accumulo.core.clientImpl.DelegationTokenImpl;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.security.token.SecretManager;
 import org.apache.hadoop.security.token.Token;
@@ -58,7 +57,7 @@ public class AuthenticationTokenSecretManager extends SecretManager<Authenticati
 
   private static final Logger log = LoggerFactory.getLogger(AuthenticationTokenSecretManager.class);
 
-  private final Instance instance;
+  private final String instanceID;
   private final long tokenMaxLifetime;
   private final ConcurrentHashMap<Integer,AuthenticationKey> allKeys = new ConcurrentHashMap<>();
   private AuthenticationKey currentKey;
@@ -66,15 +65,15 @@ public class AuthenticationTokenSecretManager extends SecretManager<Authenticati
   /**
    * Create a new secret manager instance for generating keys.
    *
-   * @param instance
-   *          Accumulo instance
+   * @param instanceID
+   *          Accumulo instance ID
    * @param tokenMaxLifetime
    *          Maximum age (in milliseconds) before a token expires and is no longer valid
    */
-  public AuthenticationTokenSecretManager(Instance instance, long tokenMaxLifetime) {
-    requireNonNull(instance);
+  public AuthenticationTokenSecretManager(String instanceID, long tokenMaxLifetime) {
+    requireNonNull(instanceID);
     checkArgument(tokenMaxLifetime > 0, "Max lifetime must be positive");
-    this.instance = instance;
+    this.instanceID = instanceID;
     this.tokenMaxLifetime = tokenMaxLifetime;
   }
 
@@ -97,9 +96,9 @@ public class AuthenticationTokenSecretManager extends SecretManager<Authenticati
     identifier.setExpirationDate(expiration);
 
     // Limit the lifetime if the user requests it
-    if (null != cfg) {
+    if (cfg != null) {
       long requestedLifetime = cfg.getTokenLifetime(TimeUnit.MILLISECONDS);
-      if (0 < requestedLifetime) {
+      if (requestedLifetime > 0) {
         long requestedExpirationDate = identifier.getIssueDate() + requestedLifetime;
         // Catch overflow again
         if (requestedExpirationDate < identifier.getIssueDate()) {
@@ -115,7 +114,7 @@ public class AuthenticationTokenSecretManager extends SecretManager<Authenticati
       }
     }
 
-    identifier.setInstanceId(instance.getInstanceID());
+    identifier.setInstanceId(instanceID);
     return createPassword(identifier.getBytes(), secretKey.getKey());
   }
 
@@ -159,7 +158,7 @@ public class AuthenticationTokenSecretManager extends SecretManager<Authenticati
     final AuthenticationTokenIdentifier id = new AuthenticationTokenIdentifier(username, cfg);
 
     final StringBuilder svcName = new StringBuilder(DelegationTokenImpl.SERVICE_NAME);
-    if (null != id.getInstanceId()) {
+    if (id.getInstanceId() != null) {
       svcName.append("-").append(id.getInstanceId());
     }
     // Create password will update the state on the identifier given currentKey. Need to call this
@@ -207,7 +206,7 @@ public class AuthenticationTokenSecretManager extends SecretManager<Authenticati
 
     log.debug("Removing AuthenticatioKey with keyId {}", keyId);
 
-    return null != allKeys.remove(keyId);
+    return allKeys.remove(keyId) != null;
   }
 
   /**
@@ -256,7 +255,7 @@ public class AuthenticationTokenSecretManager extends SecretManager<Authenticati
   }
 
   synchronized boolean isCurrentKeySet() {
-    return null != currentKey;
+    return currentKey != null;
   }
 
   /**

@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.test.functional;
 
@@ -26,12 +28,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.apache.accumulo.core.client.Accumulo;
+import org.apache.accumulo.core.client.AccumuloClient;
 import org.apache.accumulo.core.conf.Property;
 import org.apache.accumulo.gc.metrics.GcMetrics;
-import org.apache.accumulo.harness.AccumuloClusterHarness;
-import org.apache.accumulo.minicluster.impl.MiniAccumuloConfigImpl;
+import org.apache.accumulo.miniclusterImpl.MiniAccumuloConfigImpl;
 import org.apache.accumulo.test.metrics.MetricsFileTailer;
 import org.apache.hadoop.conf.Configuration;
+import org.junit.Before;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,9 +44,11 @@ import org.slf4j.LoggerFactory;
  * Functional test that uses a hadoop metrics 2 file sink to read published metrics for
  * verification.
  */
-public class GcMetricsIT extends AccumuloClusterHarness {
+public class GcMetricsIT extends ConfigurableMacBase {
 
   private static final Logger log = LoggerFactory.getLogger(GcMetricsIT.class);
+
+  private AccumuloClient accumuloClient;
 
   private static final int NUM_TAIL_ATTEMPTS = 20;
   private static final long TAIL_DELAY = 5_000;
@@ -53,9 +59,13 @@ public class GcMetricsIT extends AccumuloClusterHarness {
       "AccGcWalErrors", "AccGcWalFinished", "AccGcWalInUse", "AccGcWalStarted"};
 
   @Override
-  public void configureMiniCluster(MiniAccumuloConfigImpl cfg, Configuration hadoopCoreSite) {
-    cfg.setProperty(Property.GENERAL_LEGACY_METRICS, "false");
+  protected void configure(MiniAccumuloConfigImpl cfg, Configuration hadoopCoreSite) {
     cfg.setProperty(Property.GC_METRICS_ENABLED, "true");
+  }
+
+  @Before
+  public void init() {
+    accumuloClient = Accumulo.newClient().from(getClientProperties()).build();
   }
 
   @Override
@@ -64,39 +74,35 @@ public class GcMetricsIT extends AccumuloClusterHarness {
   }
 
   @Test
-  public void gcMetricsPublished() {
-
+  public void gcMetricsPublished() throws InterruptedException {
     boolean gcMetricsEnabled =
         cluster.getSiteConfiguration().getBoolean(Property.GC_METRICS_ENABLED);
-    boolean useLegacyMetrics =
-        cluster.getSiteConfiguration().getBoolean(Property.GENERAL_LEGACY_METRICS);
 
-    if (!gcMetricsEnabled || useLegacyMetrics) {
-      log.info("gc metrics are disabled with GC_METRICS_ENABLED={}, GENERAL_LEGACY_METRICS={}",
-          gcMetricsEnabled, useLegacyMetrics);
+    if (!gcMetricsEnabled) {
+      log.info("gc metrics are disabled with GC_METRICS_ENABLED=true");
       return;
     }
 
-    // log.trace("Client started, properties:{}", accumuloClient.properties());
+    log.debug("Client started, properties:{}", accumuloClient.properties());
 
     MetricsFileTailer gcTail = new MetricsFileTailer("accumulo.sink.file-gc");
     Thread t1 = new Thread(gcTail);
     t1.start();
 
     // uncomment for manual jmx / jconsole validation - not for automated testing
-    // manualValidationPause();
+    // Thread.sleep(320_000);
 
     try {
 
-      long updateTimestamp = System.currentTimeMillis();
+      var updateTimestamp = System.currentTimeMillis();
 
       // Get next update after current time
       LineUpdate firstUpdate = waitForUpdate(updateTimestamp, gcTail);
 
       Map<String,Long> firstSeenMap = parseLine(firstUpdate.getLine());
 
-      log.trace("L:{}", firstUpdate.getLine());
-      log.trace("M:{}", firstSeenMap);
+      log.debug("L:{}", firstUpdate.getLine());
+      log.debug("M:{}", firstSeenMap);
 
       assertTrue(lookForExpectedKeys(firstSeenMap));
       sanity(updateTimestamp, firstSeenMap);
@@ -108,7 +114,7 @@ public class GcMetricsIT extends AccumuloClusterHarness {
       Map<String,Long> updateSeenMap = parseLine(nextUpdate.getLine());
 
       log.debug("Line received:{}", nextUpdate.getLine());
-      log.trace("Mapped values:{}", updateSeenMap);
+      log.debug("Mapped values:{}", updateSeenMap);
 
       assertTrue(lookForExpectedKeys(updateSeenMap));
       sanity(updateTimestamp, updateSeenMap);
@@ -116,21 +122,7 @@ public class GcMetricsIT extends AccumuloClusterHarness {
       validate(firstSeenMap, updateSeenMap);
 
     } catch (Exception ex) {
-      throw new IllegalStateException("gc metrics file read failed", ex);
-    }
-  }
-
-  /**
-   * This method just sleeps for a while (test will likely time out) The pause is to allow manual
-   * validation of metrics by connecting to the running gc process with jconsole (or other jmx
-   * utility). It should not be used for automatic testing.
-   */
-  @SuppressWarnings("unused")
-  private void manualValidationPause() {
-    try {
-      Thread.sleep(320_000);
-    } catch (InterruptedException ex) {
-      Thread.currentThread().interrupt();
+      log.debug("reads", ex);
     }
   }
 
@@ -268,10 +260,10 @@ public class GcMetricsIT extends AccumuloClusterHarness {
 
     if (m.matches()) {
       try {
-        long timestamp = Long.parseLong(m.group("timestamp"));
+        var timestamp = Long.parseLong(m.group("timestamp"));
         return timestamp > prevTimestamp;
       } catch (NumberFormatException ex) {
-        log.trace("Could not parse timestamp from line '{}", line);
+        log.debug("Could not parse timestamp from line '{}", line);
         return false;
       }
     }

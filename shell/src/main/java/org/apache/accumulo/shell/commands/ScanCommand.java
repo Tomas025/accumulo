@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.shell.commands;
 
@@ -24,6 +26,7 @@ import java.util.List;
 import java.util.Map.Entry;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.accumulo.core.classloader.ClassLoaderUtil;
 import org.apache.accumulo.core.client.AccumuloException;
 import org.apache.accumulo.core.client.AccumuloSecurityException;
 import org.apache.accumulo.core.client.IteratorSetting;
@@ -32,7 +35,7 @@ import org.apache.accumulo.core.client.Scanner;
 import org.apache.accumulo.core.client.ScannerBase;
 import org.apache.accumulo.core.client.TableNotFoundException;
 import org.apache.accumulo.core.client.sample.SamplerConfiguration;
-import org.apache.accumulo.core.conf.AccumuloConfiguration;
+import org.apache.accumulo.core.conf.ConfigurationTypeHelper;
 import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.Range;
 import org.apache.accumulo.core.data.Value;
@@ -47,7 +50,7 @@ import org.apache.accumulo.shell.Shell.Command;
 import org.apache.accumulo.shell.Shell.PrintFile;
 import org.apache.accumulo.shell.ShellCommandException;
 import org.apache.accumulo.shell.ShellCommandException.ErrorCode;
-import org.apache.accumulo.start.classloader.vfs.AccumuloVFSClassLoader;
+import org.apache.accumulo.shell.ShellUtil;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
@@ -59,25 +62,26 @@ public class ScanCommand extends Command {
       formatterOpt, interpreterOpt, formatterInterpeterOpt, outputFileOpt;
 
   protected Option timestampOpt;
+  protected Option profileOpt;
   private Option optStartRowExclusive;
   private Option optStartRowInclusive;
   private Option optEndRowExclusive;
   private Option timeoutOption;
-  private Option profileOpt;
   private Option sampleOpt;
   private Option contextOpt;
+  private Option executionHintsOpt;
 
   protected void setupSampling(final String tableName, final CommandLine cl, final Shell shellState,
       ScannerBase scanner)
       throws TableNotFoundException, AccumuloException, AccumuloSecurityException {
     if (getUseSample(cl)) {
       SamplerConfiguration samplerConfig =
-          shellState.getConnector().tableOperations().getSamplerConfiguration(tableName);
+          shellState.getAccumuloClient().tableOperations().getSamplerConfiguration(tableName);
       if (samplerConfig == null) {
         throw new SampleNotPresentException(
             "Table " + tableName + " does not have sampling configured");
       }
-      Shell.log.debug("Using sampling configuration : " + samplerConfig);
+      Shell.log.debug("Using sampling configuration : {}", samplerConfig);
       scanner.setSamplerConfiguration(samplerConfig);
     }
   }
@@ -98,8 +102,8 @@ public class ScanCommand extends Command {
       // handle first argument, if present, the authorizations list to
       // scan with
       final Authorizations auths = getAuths(cl, shellState);
-      final Scanner scanner = shellState.getConnector().createScanner(tableName, auths);
-      if (null != classLoaderContext) {
+      final Scanner scanner = shellState.getAccumuloClient().createScanner(tableName, auths);
+      if (classLoaderContext != null) {
         scanner.setClassLoaderContext(classLoaderContext);
       }
       // handle session-specific scan iterators
@@ -116,6 +120,8 @@ public class ScanCommand extends Command {
 
       setupSampling(tableName, cl, shellState, scanner);
 
+      scanner.setExecutionHints(ShellUtil.parseMapOpt(cl, executionHintsOpt));
+
       // output the records
 
       final FormatterConfig config = new FormatterConfig();
@@ -126,9 +132,9 @@ public class ScanCommand extends Command {
           final int length = Integer.parseInt(showLength);
           config.setShownLength(length);
         } catch (NumberFormatException nfe) {
-          shellState.getReader().println("Arg must be an integer.");
+          Shell.log.error("Arg must be an integer.", nfe);
         } catch (IllegalArgumentException iae) {
-          shellState.getReader().println("Arg must be greater than one.");
+          Shell.log.error("Arg must be greater than one.", iae);
         }
       }
       printRecords(cl, shellState, config, scanner, formatter, printFile);
@@ -143,7 +149,7 @@ public class ScanCommand extends Command {
 
   protected long getTimeout(final CommandLine cl) {
     if (cl.hasOption(timeoutOption.getLongOpt())) {
-      return AccumuloConfiguration.getTimeInMillis(cl.getOptionValue(timeoutOption.getLongOpt()));
+      return ConfigurationTypeHelper.getTimeInMillis(cl.getOptionValue(timeoutOption.getLongOpt()));
     }
 
     return Long.MAX_VALUE;
@@ -152,7 +158,7 @@ public class ScanCommand extends Command {
   static void ensureTserversCanLoadIterator(final Shell shellState, String tableName,
       String classname) throws AccumuloException, AccumuloSecurityException, TableNotFoundException,
       ShellCommandException {
-    if (!shellState.getConnector().tableOperations().testClassLoad(tableName, classname,
+    if (!shellState.getAccumuloClient().tableOperations().testClassLoad(tableName, classname,
         SortedKeyValueIterator.class.getName())) {
       throw new ShellCommandException(ErrorCode.INITIALIZATION_FAILURE,
           "Servers are unable to load " + classname + " as type "
@@ -160,7 +166,7 @@ public class ScanCommand extends Command {
     }
   }
 
-  protected void addScanIterators(final Shell shellState, CommandLine cl, final Scanner scanner,
+  protected void addScanIterators(final Shell shellState, CommandLine cl, final ScannerBase scanner,
       final String tableName) throws Exception {
 
     List<IteratorSetting> tableScanIterators;
@@ -183,14 +189,14 @@ public class ScanCommand extends Command {
       }
     }
 
-    Shell.log.debug("Found " + tableScanIterators.size() + " scan iterators to set");
+    Shell.log.debug("Found {} scan iterators to set", tableScanIterators.size());
 
     for (IteratorSetting setting : tableScanIterators) {
-      Shell.log.debug("Setting scan iterator " + setting.getName() + " at priority "
-          + setting.getPriority() + " using class name " + setting.getIteratorClass());
+      Shell.log.debug("Setting scan iterator {} at priority {} using class name {}",
+          setting.getName(), setting.getPriority(), setting.getIteratorClass());
       for (Entry<String,String> option : setting.getOptions().entrySet()) {
-        Shell.log.debug("Setting option for " + setting.getName() + ": " + option.getKey() + "="
-            + option.getValue());
+        Shell.log.debug("Setting option for {}: {}={}", setting.getName(), option.getKey(),
+            option.getValue());
       }
       scanner.addScanIterator(setting);
     }
@@ -214,14 +220,20 @@ public class ScanCommand extends Command {
     Class<? extends ScanInterpreter> clazz = null;
     try {
       if (cl.hasOption(interpreterOpt.getOpt())) {
-        clazz = AccumuloVFSClassLoader.loadClass(cl.getOptionValue(interpreterOpt.getOpt()),
+        Shell.log
+            .warn("Scan Interpreter option is deprecated and will be removed in a future version.");
+
+        clazz = ClassLoaderUtil.loadClass(cl.getOptionValue(interpreterOpt.getOpt()),
             ScanInterpreter.class);
       } else if (cl.hasOption(formatterInterpeterOpt.getOpt())) {
-        clazz = AccumuloVFSClassLoader.loadClass(cl.getOptionValue(formatterInterpeterOpt.getOpt()),
+        Shell.log
+            .warn("Scan Interpreter option is deprecated and will be removed in a future version.");
+
+        clazz = ClassLoaderUtil.loadClass(cl.getOptionValue(formatterInterpeterOpt.getOpt()),
             ScanInterpreter.class);
       }
     } catch (ClassNotFoundException e) {
-      shellState.getReader().println("Interpreter class could not be loaded.\n" + e.getMessage());
+      Shell.log.error("Interpreter class could not be loaded.", e);
     }
 
     if (clazz == null)
@@ -230,7 +242,7 @@ public class ScanCommand extends Command {
     if (clazz == null)
       clazz = DefaultScanInterpreter.class;
 
-    return clazz.newInstance();
+    return clazz.getDeclaredConstructor().newInstance();
   }
 
   protected Class<? extends Formatter> getFormatter(final CommandLine cl, final String tableName,
@@ -238,15 +250,19 @@ public class ScanCommand extends Command {
 
     try {
       if (cl.hasOption(formatterOpt.getOpt())) {
+        Shell.log.warn("Formatter option is deprecated and will be removed in a future version.");
+
         return shellState.getClassLoader(cl, shellState)
             .loadClass(cl.getOptionValue(formatterOpt.getOpt())).asSubclass(Formatter.class);
       } else if (cl.hasOption(formatterInterpeterOpt.getOpt())) {
+        Shell.log.warn("Formatter option is deprecated and will be removed in a future version.");
+
         return shellState.getClassLoader(cl, shellState)
             .loadClass(cl.getOptionValue(formatterInterpeterOpt.getOpt()))
             .asSubclass(Formatter.class);
       }
     } catch (Exception e) {
-      shellState.getReader().println("Formatter class could not be loaded.\n" + e.getMessage());
+      Shell.log.error("Formatter class could not be loaded.", e);
     }
 
     return shellState.getFormatter(tableName);
@@ -256,7 +272,7 @@ public class ScanCommand extends Command {
       final ScanInterpreter formatter) throws UnsupportedEncodingException {
     if (cl.hasOption(scanOptColumns.getOpt())) {
       for (String a : cl.getOptionValue(scanOptColumns.getOpt()).split(",")) {
-        final String sa[] = a.split(":", 2);
+        final String[] sa = a.split(":", 2);
         if (sa.length == 1) {
           scanner.fetchColumnFamily(
               formatter.interpretColumnFamily(new Text(a.getBytes(Shell.CHARSET))));
@@ -276,7 +292,7 @@ public class ScanCommand extends Command {
       // did not see a way to make commons cli do this check... it has mutually exclusive options
       // but does not support the or
       throw new IllegalArgumentException("Options -" + scanOptRow.getOpt() + " AND (-"
-          + OptUtil.START_ROW_OPT + " OR -" + OptUtil.END_ROW_OPT + ") are mutally exclusive ");
+          + OptUtil.START_ROW_OPT + " OR -" + OptUtil.END_ROW_OPT + ") are mutually exclusive ");
     }
 
     if (cl.hasOption(scanOptRow.getOpt())) {
@@ -297,9 +313,9 @@ public class ScanCommand extends Command {
 
   protected Authorizations getAuths(final CommandLine cl, final Shell shellState)
       throws AccumuloSecurityException, AccumuloException {
-    final String user = shellState.getConnector().whoami();
+    final String user = shellState.getAccumuloClient().whoami();
     Authorizations auths =
-        shellState.getConnector().securityOperations().getUserAuthorizations(user);
+        shellState.getAccumuloClient().securityOperations().getUserAuthorizations(user);
     if (cl.hasOption(scanOptAuths.getOpt())) {
       auths = ScanCommand.parseAuthorizations(cl.getOptionValue(scanOptAuths.getOpt()));
     }
@@ -347,6 +363,7 @@ public class ScanCommand extends Command {
     outputFileOpt = new Option("o", "output", true, "local file to write the scan output to");
     sampleOpt = new Option(null, "sample", false, "Show sample");
     contextOpt = new Option("cc", "context", true, "name of the classloader context");
+    executionHintsOpt = new Option(null, "execution-hints", true, "Execution hints map");
 
     scanOptAuths.setArgName("comma-separated-authorizations");
     scanOptRow.setArgName("row");
@@ -358,6 +375,7 @@ public class ScanCommand extends Command {
     timeoutOption.setArgName("timeout");
     outputFileOpt.setArgName("file");
     contextOpt.setArgName("context");
+    executionHintsOpt.setArgName("<key>=<value>{,<key>=<value>}");
 
     profileOpt = new Option("pn", "profile", true, "iterator profile name");
     profileOpt.setArgName("profile");
@@ -380,8 +398,8 @@ public class ScanCommand extends Command {
     o.addOption(interpreterOpt);
     o.addOption(formatterInterpeterOpt);
     o.addOption(timeoutOption);
-    if (Arrays.asList(new String[] {ScanCommand.class.getName(), GrepCommand.class.getName(),
-        EGrepCommand.class.getName()}).contains(this.getClass().getName())) {
+    if (Arrays.asList(ScanCommand.class.getName(), GrepCommand.class.getName(),
+        EGrepCommand.class.getName()).contains(this.getClass().getName())) {
       // supported subclasses must handle the output file option properly
       // only add this option to commands which handle it correctly
       o.addOption(outputFileOpt);
@@ -389,6 +407,7 @@ public class ScanCommand extends Command {
     o.addOption(profileOpt);
     o.addOption(sampleOpt);
     o.addOption(contextOpt);
+    o.addOption(executionHintsOpt);
 
     return o;
   }

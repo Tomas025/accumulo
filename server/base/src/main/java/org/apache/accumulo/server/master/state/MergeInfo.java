@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.server.master.state;
 
@@ -20,7 +22,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-import org.apache.accumulo.core.data.impl.KeyExtent;
+import org.apache.accumulo.core.dataImpl.KeyExtent;
 import org.apache.hadoop.io.Writable;
 
 /**
@@ -42,15 +44,14 @@ public class MergeInfo implements Writable {
 
   @Override
   public void readFields(DataInput in) throws IOException {
-    extent = new KeyExtent();
-    extent.readFields(in);
+    extent = KeyExtent.readFrom(in);
     state = MergeState.values()[in.readInt()];
     operation = Operation.values()[in.readInt()];
   }
 
   @Override
   public void write(DataOutput out) throws IOException {
-    extent.write(out);
+    extent.writeTo(out);
     out.writeInt(state.ordinal());
     out.writeInt(operation.ordinal());
   }
@@ -83,11 +84,10 @@ public class MergeInfo implements Writable {
   public boolean needsToBeChopped(KeyExtent otherExtent) {
     // During a delete, the block after the merge will be stretched to cover the deleted area.
     // Therefore, it needs to be chopped
-    if (!otherExtent.getTableId().equals(extent.getTableId()))
+    if (!otherExtent.tableId().equals(extent.tableId()))
       return false;
     if (isDelete())
-      return otherExtent.getPrevEndRow() != null
-          && otherExtent.getPrevEndRow().equals(extent.getEndRow());
+      return otherExtent.prevEndRow() != null && otherExtent.prevEndRow().equals(extent.endRow());
     else
       return this.extent.overlaps(otherExtent);
   }
@@ -102,7 +102,7 @@ public class MergeInfo implements Writable {
   @Override
   public String toString() {
     if (!state.equals(MergeState.NONE))
-      return "Merge " + operation.toString() + " of " + extent + " State: " + state;
+      return "Merge " + operation + " of " + extent + " State: " + state;
     return "No Merge in progress";
   }
 }

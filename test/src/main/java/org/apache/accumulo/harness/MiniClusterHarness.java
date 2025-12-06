@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.harness;
 
@@ -33,9 +35,10 @@ import org.apache.accumulo.cluster.ClusterUser;
 import org.apache.accumulo.core.client.security.tokens.AuthenticationToken;
 import org.apache.accumulo.core.client.security.tokens.KerberosToken;
 import org.apache.accumulo.core.client.security.tokens.PasswordToken;
+import org.apache.accumulo.core.conf.ClientProperty;
 import org.apache.accumulo.core.conf.Property;
-import org.apache.accumulo.minicluster.impl.MiniAccumuloClusterImpl;
-import org.apache.accumulo.minicluster.impl.MiniAccumuloConfigImpl;
+import org.apache.accumulo.miniclusterImpl.MiniAccumuloClusterImpl;
+import org.apache.accumulo.miniclusterImpl.MiniAccumuloConfigImpl;
 import org.apache.accumulo.server.security.handler.KerberosAuthenticator;
 import org.apache.accumulo.server.security.handler.KerberosAuthorizor;
 import org.apache.accumulo.server.security.handler.KerberosPermissionHandler;
@@ -45,6 +48,8 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 
 /**
  * Harness that sets up a MiniAccumuloCluster in a manner expected for Accumulo integration tests.
@@ -148,8 +153,7 @@ public class MiniClusterHarness {
     Configuration coreSite = new Configuration(false);
 
     // Setup SSL and credential providers if the properties request such
-    configureForEnvironment(cfg, getClass(), AccumuloClusterHarness.getSslDir(baseDir), coreSite,
-        kdc);
+    configureForEnvironment(cfg, AccumuloClusterHarness.getSslDir(baseDir), coreSite, kdc);
 
     // Invoke the callback for tests to configure MAC before it starts
     configCallback.configureMiniCluster(cfg, coreSite);
@@ -172,8 +176,8 @@ public class MiniClusterHarness {
     return miniCluster;
   }
 
-  protected void configureForEnvironment(MiniAccumuloConfigImpl cfg, Class<?> testClass,
-      File folder, Configuration coreSite, TestingKdc kdc) {
+  protected void configureForEnvironment(MiniAccumuloConfigImpl cfg, File folder,
+      Configuration coreSite, TestingKdc kdc) {
     if (TRUE.equals(System.getProperty(USE_SSL_FOR_IT_OPTION))) {
       configureForSsl(cfg, folder);
     }
@@ -187,13 +191,14 @@ public class MiniClusterHarness {
       }
 
       try {
-        configureForKerberos(cfg, folder, coreSite, kdc);
+        configureForKerberos(cfg, coreSite, kdc);
       } catch (Exception e) {
         throw new RuntimeException("Failed to initialize KDC", e);
       }
     }
   }
 
+  @SuppressFBWarnings(value = "PATH_TRAVERSAL_IN", justification = "paths provided by test")
   protected void configureForSsl(MiniAccumuloConfigImpl cfg, File folder) {
     Map<String,String> siteConfig = cfg.getSiteConfig();
     if (TRUE.equals(siteConfig.get(Property.INSTANCE_RPC_SSL_ENABLED.getKey()))) {
@@ -225,10 +230,17 @@ public class MiniClusterHarness {
         publicTruststoreFile.getAbsolutePath());
     siteConfig.put(Property.RPC_SSL_TRUSTSTORE_PASSWORD.getKey(), truststorePassword);
     cfg.setSiteConfig(siteConfig);
+
+    cfg.setClientProperty(ClientProperty.SSL_ENABLED, "true");
+    cfg.setClientProperty(ClientProperty.SSL_KEYSTORE_PATH, localKeystoreFile.getAbsolutePath());
+    cfg.setClientProperty(ClientProperty.SSL_KEYSTORE_PASSWORD.getKey(), cfg.getRootPassword());
+    cfg.setClientProperty(ClientProperty.SSL_TRUSTSTORE_PATH.getKey(),
+        publicTruststoreFile.getAbsolutePath());
+    cfg.setClientProperty(ClientProperty.SSL_TRUSTSTORE_PASSWORD.getKey(), truststorePassword);
   }
 
-  protected void configureForKerberos(MiniAccumuloConfigImpl cfg, File folder,
-      Configuration coreSite, TestingKdc kdc) throws Exception {
+  protected void configureForKerberos(MiniAccumuloConfigImpl cfg, Configuration coreSite,
+      TestingKdc kdc) {
     Map<String,String> siteConfig = cfg.getSiteConfig();
     if (TRUE.equals(siteConfig.get(Property.INSTANCE_RPC_SSL_ENABLED.getKey()))) {
       throw new RuntimeException("Cannot use both SSL and SASL/Kerberos");
@@ -239,7 +251,7 @@ public class MiniClusterHarness {
       return;
     }
 
-    if (null == kdc) {
+    if (kdc == null) {
       throw new IllegalStateException("MiniClusterKdc was null");
     }
 
@@ -271,5 +283,7 @@ public class MiniClusterHarness {
     coreSite.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION, "kerberos");
 
     cfg.setRootUserName(kdc.getRootUser().getPrincipal());
+
+    cfg.setClientProperty(ClientProperty.SASL_ENABLED, "true");
   }
 }

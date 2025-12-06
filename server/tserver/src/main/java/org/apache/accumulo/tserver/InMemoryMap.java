@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.tserver;
 
@@ -23,12 +25,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
-import java.util.SortedMap;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.TimeUnit;
@@ -42,12 +42,12 @@ import org.apache.accumulo.core.client.sample.Sampler;
 import org.apache.accumulo.core.conf.AccumuloConfiguration;
 import org.apache.accumulo.core.conf.ConfigurationCopy;
 import org.apache.accumulo.core.conf.Property;
-import org.apache.accumulo.core.conf.SiteConfiguration;
 import org.apache.accumulo.core.data.ByteSequence;
 import org.apache.accumulo.core.data.ColumnUpdate;
 import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.Mutation;
 import org.apache.accumulo.core.data.Range;
+import org.apache.accumulo.core.data.TableId;
 import org.apache.accumulo.core.data.Value;
 import org.apache.accumulo.core.file.FileSKVIterator;
 import org.apache.accumulo.core.file.FileSKVWriter;
@@ -55,22 +55,22 @@ import org.apache.accumulo.core.file.rfile.RFile;
 import org.apache.accumulo.core.file.rfile.RFileOperations;
 import org.apache.accumulo.core.iterators.IteratorEnvironment;
 import org.apache.accumulo.core.iterators.SortedKeyValueIterator;
-import org.apache.accumulo.core.iterators.SortedMapIterator;
 import org.apache.accumulo.core.iterators.WrappingIterator;
-import org.apache.accumulo.core.iterators.system.EmptyIterator;
-import org.apache.accumulo.core.iterators.system.InterruptibleIterator;
-import org.apache.accumulo.core.iterators.system.LocalityGroupIterator;
-import org.apache.accumulo.core.iterators.system.LocalityGroupIterator.LocalityGroup;
-import org.apache.accumulo.core.iterators.system.SourceSwitchingIterator;
-import org.apache.accumulo.core.iterators.system.SourceSwitchingIterator.DataSource;
+import org.apache.accumulo.core.iteratorsImpl.system.EmptyIterator;
+import org.apache.accumulo.core.iteratorsImpl.system.InterruptibleIterator;
+import org.apache.accumulo.core.iteratorsImpl.system.InterruptibleMapIterator;
+import org.apache.accumulo.core.iteratorsImpl.system.LocalityGroupIterator;
+import org.apache.accumulo.core.iteratorsImpl.system.LocalityGroupIterator.LocalityGroup;
+import org.apache.accumulo.core.iteratorsImpl.system.SourceSwitchingIterator;
+import org.apache.accumulo.core.iteratorsImpl.system.SourceSwitchingIterator.DataSource;
 import org.apache.accumulo.core.sample.impl.SamplerConfigurationImpl;
 import org.apache.accumulo.core.sample.impl.SamplerFactory;
-import org.apache.accumulo.core.util.CachedConfiguration;
 import org.apache.accumulo.core.util.LocalityGroupUtil;
 import org.apache.accumulo.core.util.LocalityGroupUtil.Partitioner;
 import org.apache.accumulo.core.util.Pair;
 import org.apache.accumulo.core.util.PreAllocatedArray;
-import org.apache.commons.lang.mutable.MutableLong;
+import org.apache.accumulo.server.ServerContext;
+import org.apache.commons.lang3.mutable.MutableLong;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -84,6 +84,7 @@ public class InMemoryMap {
 
   private static final Logger log = LoggerFactory.getLogger(InMemoryMap.class);
 
+  private ServerContext context;
   private volatile String memDumpFile = null;
   private final String memDumpDir;
   private final String mapType;
@@ -128,7 +129,7 @@ public class InMemoryMap {
     return pair.getSecond();
   }
 
-  public InMemoryMap(AccumuloConfiguration config, String tableId) {
+  public InMemoryMap(AccumuloConfiguration config, ServerContext serverContext, TableId tableId) {
 
     boolean useNativeMap = config.getBoolean(Property.TSERV_NATIVEMAP_ENABLED);
 
@@ -136,11 +137,12 @@ public class InMemoryMap {
     this.lggroups = LocalityGroupUtil.getLocalityGroupsIgnoringErrors(config, tableId);
 
     this.config = config;
+    this.context = serverContext;
 
     SimpleMap allMap;
     SimpleMap sampleMap;
 
-    if (lggroups.size() == 0) {
+    if (lggroups.isEmpty()) {
       allMap = newMap(useNativeMap);
       sampleMap = newMap(useNativeMap);
       mapType = useNativeMap ? TYPE_NATIVE_MAP_WRAPPER : TYPE_DEFAULT_MAP;
@@ -180,9 +182,6 @@ public class InMemoryMap {
   }
 
   private interface SimpleMap {
-    Value get(Key key);
-
-    Iterator<Entry<Key,Value>> iterator(Key startKey);
 
     int size();
 
@@ -203,16 +202,6 @@ public class InMemoryMap {
     public SampleMap(SimpleMap map, SimpleMap sampleMap) {
       this.map = map;
       this.sample = sampleMap;
-    }
-
-    @Override
-    public Value get(Key key) {
-      return map.get(key);
-    }
-
-    @Override
-    public Iterator<Entry<Key,Value>> iterator(Key startKey) {
-      throw new UnsupportedOperationException();
     }
 
     @Override
@@ -292,7 +281,7 @@ public class InMemoryMap {
     private PreAllocatedArray<Map<ByteSequence,MutableLong>> groupFams;
 
     // the last map in the array is the default locality group
-    private SimpleMap maps[];
+    private SimpleMap[] maps;
     private Partitioner partitioner;
     private PreAllocatedArray<List<Mutation>> partitioned;
 
@@ -316,18 +305,8 @@ public class InMemoryMap {
       partitioner = new LocalityGroupUtil.Partitioner(this.groupFams);
 
       for (int i = 0; i < partitioned.length; i++) {
-        partitioned.set(i, new ArrayList<Mutation>());
+        partitioned.set(i, new ArrayList<>());
       }
-    }
-
-    @Override
-    public Value get(Key key) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public Iterator<Entry<Key,Value>> iterator(Key startKey) {
-      throw new UnsupportedOperationException();
     }
 
     @Override
@@ -343,7 +322,7 @@ public class InMemoryMap {
       if (samplerConfig != null)
         throw new SampleNotPresentException();
 
-      LocalityGroup groups[] = new LocalityGroup[maps.length];
+      LocalityGroup[] groups = new LocalityGroup[maps.length];
       for (int i = 0; i < groups.length; i++) {
         if (i < groupFams.length)
           groups[i] = new LocalityGroup(maps[i].skvIterator(null), groupFams.get(i), false);
@@ -378,7 +357,7 @@ public class InMemoryMap {
         partitioner.partition(mutations, partitioned);
 
         for (int i = 0; i < partitioned.length; i++) {
-          if (partitioned.get(i).size() > 0) {
+          if (!partitioned.get(i).isEmpty()) {
             maps[i].mutate(partitioned.get(i), kvCount);
             for (Mutation m : partitioned.get(i))
               kvCount += m.getUpdates().size();
@@ -409,18 +388,6 @@ public class InMemoryMap {
     }
 
     @Override
-    public Value get(Key key) {
-      return map.get(key);
-    }
-
-    @Override
-    public Iterator<Entry<Key,Value>> iterator(Key startKey) {
-      Key lk = new Key(startKey);
-      SortedMap<Key,Value> tm = map.tailMap(lk);
-      return tm.entrySet().iterator();
-    }
-
-    @Override
     public int size() {
       return size.get();
     }
@@ -432,7 +399,7 @@ public class InMemoryMap {
       if (map == null)
         throw new IllegalStateException();
 
-      return new SortedMapIterator(map);
+      return new InterruptibleMapIterator(map, null);
     }
 
     @Override
@@ -476,16 +443,6 @@ public class InMemoryMap {
     }
 
     @Override
-    public Value get(Key key) {
-      return nativeMap.get(key);
-    }
-
-    @Override
-    public Iterator<Entry<Key,Value>> iterator(Key startKey) {
-      return nativeMap.iterator(startKey);
-    }
-
-    @Override
     public int size() {
       return nativeMap.size();
     }
@@ -522,11 +479,7 @@ public class InMemoryMap {
    * Applies changes to a row in the InMemoryMap
    *
    */
-  public void mutate(List<Mutation> mutations) {
-    int numKVs = 0;
-    for (int i = 0; i < mutations.size(); i++)
-      numKVs += mutations.get(i).size();
-
+  public void mutate(List<Mutation> mutations, int numKVs) {
     // Can not update mutationCount while writes that started before
     // are in progress, this would cause partial mutations to be seen.
     // Also, can not continue until mutation count is updated, because
@@ -556,18 +509,13 @@ public class InMemoryMap {
     return map.getMemoryUsed();
   }
 
-  Iterator<Map.Entry<Key,Value>> iterator(Key startKey) {
-    return map.iterator(startKey);
-  }
-
   public synchronized long getNumEntries() {
     if (map == null)
       return 0;
     return map.size();
   }
 
-  private final Set<MemoryIterator> activeIters =
-      Collections.synchronizedSet(new HashSet<MemoryIterator>());
+  private final Set<MemoryIterator> activeIters = Collections.synchronizedSet(new HashSet<>());
 
   class MemoryDataSource implements DataSource {
 
@@ -633,11 +581,12 @@ public class InMemoryMap {
 
     private synchronized FileSKVIterator getReader() throws IOException {
       if (reader == null) {
-        Configuration conf = CachedConfiguration.getInstance();
+        Configuration conf = context.getHadoopConf();
         FileSystem fs = FileSystem.getLocal(conf);
 
-        reader = new RFileOperations().newReaderBuilder().forFile(memDumpFile, fs, conf)
-            .withTableConfiguration(SiteConfiguration.getInstance()).seekToBeginning().build();
+        reader = new RFileOperations().newReaderBuilder()
+            .forFile(memDumpFile, fs, conf, context.getCryptoService())
+            .withTableConfiguration(context.getConfiguration()).seekToBeginning().build();
         if (iflag != null)
           reader.setInterruptFlag(iflag);
 
@@ -786,14 +735,14 @@ public class InMemoryMap {
 
     long t1 = System.currentTimeMillis();
 
-    while (activeIters.size() > 0 && System.currentTimeMillis() - t1 < waitTime) {
+    while (!activeIters.isEmpty() && System.currentTimeMillis() - t1 < waitTime) {
       sleepUninterruptibly(50, TimeUnit.MILLISECONDS);
     }
 
-    if (activeIters.size() > 0) {
+    if (!activeIters.isEmpty()) {
       // dump memmap exactly as is to a tmp file on disk, and switch scans to that temp file
       try {
-        Configuration conf = CachedConfiguration.getInstance();
+        Configuration conf = context.getHadoopConf();
         FileSystem fs = FileSystem.getLocal(conf);
 
         String tmpFile = memDumpDir + "/memDump" + UUID.randomUUID() + "." + RFile.EXTENSION;
@@ -801,14 +750,15 @@ public class InMemoryMap {
         Configuration newConf = new Configuration(conf);
         newConf.setInt("io.seqfile.compress.blocksize", 100000);
 
-        AccumuloConfiguration siteConf = SiteConfiguration.getInstance();
+        AccumuloConfiguration aconf = context.getConfiguration();
 
         if (getOrCreateSampler() != null) {
-          siteConf = createSampleConfig(siteConf);
+          aconf = createSampleConfig(aconf);
         }
 
-        FileSKVWriter out = new RFileOperations().newWriterBuilder().forFile(tmpFile, fs, newConf)
-            .withTableConfiguration(siteConf).build();
+        FileSKVWriter out = new RFileOperations().newWriterBuilder()
+            .forFile(tmpFile, fs, newConf, context.getCryptoService()).withTableConfiguration(aconf)
+            .build();
 
         InterruptibleIterator iter = map.skvIterator(null);
 
@@ -828,7 +778,7 @@ public class InMemoryMap {
 
         out.close();
 
-        log.debug("Created mem dump file " + tmpFile);
+        log.debug("Created mem dump file {}", tmpFile);
 
         memDumpFile = tmpFile;
 
@@ -843,9 +793,9 @@ public class InMemoryMap {
         fs.delete(new Path(memDumpFile), true);
 
       } catch (IOException ioe) {
-        log.error("Failed to create mem dump file ", ioe);
+        log.error("Failed to create mem dump file", ioe);
 
-        while (activeIters.size() > 0) {
+        while (!activeIters.isEmpty()) {
           sleepUninterruptibly(100, TimeUnit.MILLISECONDS);
         }
       }
@@ -875,7 +825,7 @@ public class InMemoryMap {
   }
 
   private void dumpLocalityGroup(FileSKVWriter out, InterruptibleIterator iter) throws IOException {
-    while (iter.hasTop() && activeIters.size() > 0) {
+    while (iter.hasTop() && !activeIters.isEmpty()) {
       // RFile does not support MemKey, so we move the kv count into the value only for the RFile.
       // There is no need to change the MemKey to a normal key because the kvCount info gets lost
       // when it is written

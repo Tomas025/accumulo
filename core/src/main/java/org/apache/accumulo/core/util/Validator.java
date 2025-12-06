@@ -1,30 +1,29 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.core.util;
 
-import org.gaul.modernizer_maven_annotations.SuppressModernizer;
-
-import com.google.common.base.Predicate;
+import java.util.function.Predicate;
 
 /**
  * A class that validates arguments of a particular type. Implementations must implement
- * {@link #apply(Object)} and should override {@link #invalidMessage(Object)}.
+ * {@link #test(Object)} and should override {@link #invalidMessage(Object)}.
  */
-@SuppressModernizer
 public abstract class Validator<T> implements Predicate<T> {
 
   /**
@@ -37,7 +36,7 @@ public abstract class Validator<T> implements Predicate<T> {
    *           if validation fails
    */
   public final T validate(final T argument) {
-    if (!apply(argument))
+    if (!test(argument))
       throw new IllegalArgumentException(invalidMessage(argument));
     return argument;
   }
@@ -65,16 +64,16 @@ public abstract class Validator<T> implements Predicate<T> {
     if (other == null)
       return this;
     final Validator<T> mine = this;
-    return new Validator<T>() {
+    return new Validator<>() {
 
       @Override
-      public boolean apply(T argument) {
-        return mine.apply(argument) && other.apply(argument);
+      public boolean test(T argument) {
+        return mine.test(argument) && other.test(argument);
       }
 
       @Override
       public String invalidMessage(T argument) {
-        return (mine.apply(argument) ? other : mine).invalidMessage(argument);
+        return (mine.test(argument) ? other : mine).invalidMessage(argument);
       }
 
     };
@@ -92,11 +91,11 @@ public abstract class Validator<T> implements Predicate<T> {
     if (other == null)
       return this;
     final Validator<T> mine = this;
-    return new Validator<T>() {
+    return new Validator<>() {
 
       @Override
-      public boolean apply(T argument) {
-        return mine.apply(argument) || other.apply(argument);
+      public boolean test(T argument) {
+        return mine.test(argument) || other.test(argument);
       }
 
       @Override
@@ -115,11 +114,11 @@ public abstract class Validator<T> implements Predicate<T> {
    */
   public final Validator<T> not() {
     final Validator<T> mine = this;
-    return new Validator<T>() {
+    return new Validator<>() {
 
       @Override
-      public boolean apply(T argument) {
-        return !mine.apply(argument);
+      public boolean test(T argument) {
+        return !mine.test(argument);
       }
 
       @Override

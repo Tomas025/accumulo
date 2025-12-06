@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.server.master.state;
 
@@ -28,7 +30,10 @@ import static org.junit.Assert.assertTrue;
 import java.util.Collection;
 import java.util.Set;
 
-import org.apache.accumulo.core.data.impl.KeyExtent;
+import org.apache.accumulo.core.dataImpl.KeyExtent;
+import org.apache.accumulo.core.metadata.TServerInstance;
+import org.apache.accumulo.core.metadata.TabletLocationState;
+import org.apache.accumulo.core.metadata.TabletState;
 import org.apache.hadoop.io.Text;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -51,7 +56,7 @@ public class TabletLocationStateTest {
   private TabletLocationState tls;
 
   @Before
-  public void setUp() throws Exception {
+  public void setUp() {
     keyExtent = createMock(KeyExtent.class);
     future = createMock(TServerInstance.class);
     current = createMock(TServerInstance.class);
@@ -82,7 +87,7 @@ public class TabletLocationStateTest {
 
   @Test(expected = TabletLocationState.BadLocationStateException.class)
   public void testConstruction_FutureAndCurrent() throws Exception {
-    expect(keyExtent.getMetadataEntry()).andReturn(new Text("entry"));
+    expect(keyExtent.toMetaRow()).andReturn(new Text("entry"));
     replay(keyExtent);
     try {
       new TabletLocationState(keyExtent, future, current, last, null, walogs, true);
@@ -102,25 +107,25 @@ public class TabletLocationStateTest {
   @Test
   public void testGetServer_Current() throws Exception {
     tls = new TabletLocationState(keyExtent, null, current, last, null, walogs, true);
-    assertSame(current, tls.getServer());
+    assertSame(current, tls.getLocation());
   }
 
   @Test
   public void testGetServer_Future() throws Exception {
     tls = new TabletLocationState(keyExtent, future, null, last, null, walogs, true);
-    assertSame(future, tls.getServer());
+    assertSame(future, tls.getLocation());
   }
 
   @Test
   public void testGetServer_Last() throws Exception {
     tls = new TabletLocationState(keyExtent, null, null, last, null, walogs, true);
-    assertSame(last, tls.getServer());
+    assertSame(last, tls.getLocation());
   }
 
   @Test
   public void testGetServer_None() throws Exception {
     tls = new TabletLocationState(keyExtent, null, null, null, null, walogs, true);
-    assertNull(tls.getServer());
+    assertNull(tls.getLocation());
   }
 
   @Test

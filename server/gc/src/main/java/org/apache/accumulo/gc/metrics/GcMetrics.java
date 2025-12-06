@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.gc.metrics;
 
@@ -21,13 +23,6 @@ import java.util.concurrent.TimeUnit;
 import org.apache.accumulo.core.gc.thrift.GcCycleStats;
 import org.apache.accumulo.gc.SimpleGarbageCollector;
 import org.apache.accumulo.server.metrics.Metrics;
-import org.apache.accumulo.server.metrics.MetricsSystemHelper;
-import org.apache.hadoop.metrics2.MetricsCollector;
-import org.apache.hadoop.metrics2.MetricsRecordBuilder;
-import org.apache.hadoop.metrics2.MetricsSource;
-import org.apache.hadoop.metrics2.MetricsSystem;
-import org.apache.hadoop.metrics2.impl.MsInfo;
-import org.apache.hadoop.metrics2.lib.Interns;
 import org.apache.hadoop.metrics2.lib.MetricsRegistry;
 import org.apache.hadoop.metrics2.lib.MutableGaugeLong;
 
@@ -37,21 +32,16 @@ import org.apache.hadoop.metrics2.lib.MutableGaugeLong;
  * CONTEXT.RECORD (accgc.AccGcCycleMetrics). The value for context is also used by the configuration
  * file for sink configuration.
  */
-public class GcMetrics implements Metrics, MetricsSource {
+public class GcMetrics extends Metrics {
 
-  // use common prefix, different than just gc, to prevent confusion with jvm gc metrics.
+  // use common prefix, different that just gc, to prevent confusion with jvm gc metrics.
   public static final String GC_METRIC_PREFIX = "AccGc";
 
-  public static final String CONTEXT = "accgc";
   private static final String jmxName = "GarbageCollector";
-  // private final String NAME = "AccGC" + ",sub=AccGcRunStats";
-  private final String DESCRIPTION = "Accumulo garbage collection metrics";
-  private final String RECORD = "AccGcCycleMetrics";
+  private static final String description = "Accumulo garbage collection metrics";
+  private static final String record = "AccGcCycleMetrics";
 
   private final SimpleGarbageCollector gc;
-
-  private final MetricsSystem metricsSystem;
-  private final MetricsRegistry registry;
 
   // metrics gauges / counters.
   private final MutableGaugeLong gcStarted;
@@ -71,19 +61,11 @@ public class GcMetrics implements Metrics, MetricsSource {
   private final MutableGaugeLong postOpDuration;
   private final MutableGaugeLong runCycleCount;
 
-  private final boolean metrics2enabled;
-
-  public GcMetrics(final SimpleGarbageCollector gc, final boolean metrics2enabled) {
-
+  GcMetrics(final SimpleGarbageCollector gc) {
+    super(jmxName + ",sub=" + gc.getClass().getSimpleName(), description, "accgc", record);
     this.gc = gc;
-    this.metrics2enabled = metrics2enabled;
 
-    // NAME = jmxName + ",sub=" + gc.getClass().getSimpleName();
-    metricsSystem = MetricsSystemHelper.getInstance();
-    this.registry = new MetricsRegistry(
-        Interns.info(jmxName + ",sub=" + gc.getClass().getSimpleName(), DESCRIPTION));
-
-    this.registry.tag(MsInfo.ProcessName, MetricsSystemHelper.getProcessName());
+    MetricsRegistry registry = super.getRegistry();
 
     gcStarted = registry.newGauge(GC_METRIC_PREFIX + "Started",
         "Timestamp GC file collection cycle started", 0L);
@@ -120,24 +102,7 @@ public class GcMetrics implements Metrics, MetricsSource {
   }
 
   @Override
-  public void register() throws Exception {
-    if (metrics2enabled) {
-      metricsSystem.register(jmxName + ",sub=" + gc.getClass().getSimpleName(), DESCRIPTION, this);
-    }
-  }
-
-  @Override
-  public void add(String name, long time) {
-    throw new UnsupportedOperationException("add() is not implemented");
-  }
-
-  @Override
-  public boolean isEnabled() {
-    return true;
-  }
-
-  @Override
-  public void getMetrics(MetricsCollector collector, boolean all) {
+  protected void prepareMetrics() {
 
     GcCycleMetrics values = gc.getGcCycleMetrics();
 
@@ -161,10 +126,5 @@ public class GcMetrics implements Metrics, MetricsSource {
 
     postOpDuration.set(TimeUnit.NANOSECONDS.toMillis(values.getPostOpDurationNanos()));
     runCycleCount.set(values.getRunCycleCount());
-
-    // create the metrics record and publish to the registry.
-    MetricsRecordBuilder builder = collector.addRecord(RECORD).setContext(CONTEXT);
-    registry.snapshot(builder, all);
-
   }
 }

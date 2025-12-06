@@ -1,19 +1,21 @@
 /*
-* Licensed to the Apache Software Foundation (ASF) under one or more
-* contributor license agreements.  See the NOTICE file distributed with
-* this work for additional information regarding copyright ownership.
-* The ASF licenses this file to You under the Apache License, Version 2.0
-* (the "License"); you may not use this file except in compliance with
-* the License.  You may obtain a copy of the License at
-*
-*     http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*/
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 namespace java org.apache.accumulo.core.tabletserver.thrift
 namespace cpp org.apache.accumulo.core.tabletserver.thrift
 
@@ -176,6 +178,7 @@ service TabletClientService extends client.ClientService {
     14:i64 batchTimeOut
     // name of the classloader context
     15:string classLoaderContext
+    16:map<string, string> executionHints
   ) throws (
     1:client.ThriftSecurityException sec
     2:NotServingTabletException nste
@@ -212,6 +215,7 @@ service TabletClientService extends client.ClientService {
     10:i64 batchTimeOut
     // name of the classloader context
     11:string classLoaderContext
+    12:map<string, string> executionHints
   ) throws (
     1:client.ThriftSecurityException sec
     2:TSampleNotPresentException tsnpe
@@ -307,6 +311,15 @@ service TabletClientService extends client.ClientService {
     5:bool setTime
   ) throws (
     1:client.ThriftSecurityException sec
+  )
+
+  oneway void loadFiles(
+    1:trace.TInfo tinfo
+    2:security.TCredentials credentials
+    3:i64 tid
+    4:string dir
+    5:map<data.TKeyExtent, map<string, data.MapFileInfo>> files
+    6:bool setTime
   )
 
   void splitTablet(
@@ -426,6 +439,41 @@ service TabletClientService extends client.ClientService {
   list<string> getActiveLogs(
     1:trace.TInfo tinfo
     2:security.TCredentials credentials
+  )
+
+  data.TSummaries startGetSummaries(
+    1:trace.TInfo tinfo
+    2:security.TCredentials credentials
+    3:data.TSummaryRequest request
+  ) throws (
+    1:client.ThriftSecurityException sec
+    2:client.ThriftTableOperationException tope
+  )
+
+  data.TSummaries startGetSummariesForPartition(
+    1:trace.TInfo tinfo
+    2:security.TCredentials credentials
+    3:data.TSummaryRequest request
+    4:i32 modulus
+    5:i32 remainder
+  ) throws (
+    1:client.ThriftSecurityException sec
+  )
+
+  data.TSummaries startGetSummariesFromFiles(
+    1:trace.TInfo tinfo
+    2:security.TCredentials credentials
+    3:data.TSummaryRequest request
+    4:map<string, list<data.TRowRange>> files
+  ) throws (
+    1:client.ThriftSecurityException sec
+  )
+
+  data.TSummaries contiuneGetSummaries(
+    1:trace.TInfo tinfo
+    2:i64 sessionId
+  ) throws (
+    1:NoSuchScanIDException nssi
   )
 
 }

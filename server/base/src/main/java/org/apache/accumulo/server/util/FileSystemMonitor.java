@@ -1,20 +1,24 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.server.util;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -37,6 +41,8 @@ import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.Sets;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+
 public class FileSystemMonitor {
   private static final String PROC_MOUNTS = "/proc/mounts";
   private static final Logger log = LoggerFactory.getLogger(FileSystemMonitor.class);
@@ -50,7 +56,7 @@ public class FileSystemMonitor {
     Set<String> options;
 
     Mount(String line) {
-      String tokens[] = line.split("\\s+");
+      String[] tokens = line.split("\\s+");
 
       device = tokens[0].trim();
       mountPoint = tokens[1].trim();
@@ -68,15 +74,14 @@ public class FileSystemMonitor {
     }
   }
 
+  @SuppressFBWarnings(value = "PATH_TRAVERSAL_IN",
+      justification = "procFile path not from user input")
   static List<Mount> parse(String procFile) throws IOException {
 
-    FileReader fr = new FileReader(procFile);
-    BufferedReader br = new BufferedReader(fr);
+    FileReader fr = new FileReader(procFile, UTF_8);
 
-    try {
+    try (BufferedReader br = new BufferedReader(fr)) {
       return getMountsFromFile(br);
-    } finally {
-      br.close();
     }
   }
 

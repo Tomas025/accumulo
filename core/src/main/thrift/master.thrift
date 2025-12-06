@@ -1,19 +1,21 @@
 /*
-* Licensed to the Apache Software Foundation (ASF) under one or more
-* contributor license agreements.  See the NOTICE file distributed with
-* this work for additional information regarding copyright ownership.
-* The ASF licenses this file to You under the Apache License, Version 2.0
-* (the "License"); you may not use this file except in compliance with
-* the License.  You may obtain a copy of the License at
-*
-*     http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*/
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 namespace java org.apache.accumulo.core.master.thrift
 namespace cpp org.apache.accumulo.core.master.thrift
 
@@ -86,6 +88,7 @@ struct TabletServerStatus {
   15:i64 flushs
   16:i64 syncs
   17:list<BulkImportStatus> bulkImports
+  19:string version
   18:i64 responseTime
 }
 
@@ -114,7 +117,7 @@ struct DeadServer {
 struct MasterMonitorInfo {
   1:map<string, TableInfo> tableMap
   2:list<TabletServerStatus> tServerInfo
-  3:map<string, byte> badTServers
+  3:map<string, i8> badTServers
   6:MasterState state
   8:MasterGoalState goalState
   7:i32 unassignedTablets
@@ -158,6 +161,7 @@ enum FateOperation {
   NAMESPACE_CREATE
   NAMESPACE_DELETE
   NAMESPACE_RENAME
+  TABLE_BULK_IMPORT2
 }
 
 service FateService {
@@ -168,6 +172,7 @@ service FateService {
     1:security.TCredentials credentials
   ) throws (
     1:client.ThriftSecurityException sec
+    2:client.ThriftNotActiveServiceException tnase
   )
 
   // initiate execution of the fate operation; set autoClean to true if not waiting for completion
@@ -182,6 +187,7 @@ service FateService {
   ) throws (
     1:client.ThriftSecurityException sec
     2:client.ThriftTableOperationException tope
+    3:client.ThriftNotActiveServiceException tnase
   )
 
   // wait for completion of the operation and get the returned exception, if any
@@ -192,6 +198,7 @@ service FateService {
   ) throws (
     1:client.ThriftSecurityException sec
     2:client.ThriftTableOperationException tope
+    3:client.ThriftNotActiveServiceException tnase
   )
 
   // clean up fate operation if autoClean was not set, after waiting
@@ -201,6 +208,7 @@ service FateService {
     2:i64 opid
   ) throws (
     1:client.ThriftSecurityException sec
+    2:client.ThriftNotActiveServiceException tnase
   )
 
 }
@@ -215,6 +223,7 @@ service MasterClientService extends FateService {
   ) throws (
     1:client.ThriftSecurityException sec
     2:client.ThriftTableOperationException tope
+    3:client.ThriftNotActiveServiceException tnase
   )
 
   void waitForFlush(
@@ -228,6 +237,7 @@ service MasterClientService extends FateService {
   ) throws (
     1:client.ThriftSecurityException sec
     2:client.ThriftTableOperationException tope
+    3:client.ThriftNotActiveServiceException tnase
   )
 
   void setTableProperty(
@@ -239,6 +249,7 @@ service MasterClientService extends FateService {
   ) throws (
     1:client.ThriftSecurityException sec
     2:client.ThriftTableOperationException tope
+    3:client.ThriftNotActiveServiceException tnase
   )
 
   void removeTableProperty(
@@ -249,6 +260,7 @@ service MasterClientService extends FateService {
   ) throws (
     1:client.ThriftSecurityException sec
     2:client.ThriftTableOperationException tope
+    3:client.ThriftNotActiveServiceException tnase
   )
 
   void setNamespaceProperty(
@@ -260,6 +272,7 @@ service MasterClientService extends FateService {
   ) throws (
     1:client.ThriftSecurityException sec
     2:client.ThriftTableOperationException tope
+    3:client.ThriftNotActiveServiceException tnase
   )
 
   void removeNamespaceProperty(
@@ -270,6 +283,7 @@ service MasterClientService extends FateService {
   ) throws (
     1:client.ThriftSecurityException sec
     2:client.ThriftTableOperationException tope
+    3:client.ThriftNotActiveServiceException tnase
   )
 
   // system management methods
@@ -279,6 +293,7 @@ service MasterClientService extends FateService {
     2:MasterGoalState state
   ) throws (
     1:client.ThriftSecurityException sec
+    2:client.ThriftNotActiveServiceException tnase
   )
 
   void shutdown(
@@ -287,6 +302,7 @@ service MasterClientService extends FateService {
     2:bool stopTabletServers
   ) throws (
     1:client.ThriftSecurityException sec
+    2:client.ThriftNotActiveServiceException tnase
   )
 
   void shutdownTabletServer(
@@ -296,6 +312,7 @@ service MasterClientService extends FateService {
     4:bool force
   ) throws (
     1: client.ThriftSecurityException sec
+    2:client.ThriftNotActiveServiceException tnase
   )
 
   void setSystemProperty(
@@ -305,6 +322,7 @@ service MasterClientService extends FateService {
     3:string value
   ) throws (
     1:client.ThriftSecurityException sec
+    2:client.ThriftNotActiveServiceException tnase
   )
 
   void removeSystemProperty(
@@ -313,6 +331,7 @@ service MasterClientService extends FateService {
     2:string property
   ) throws (
     1:client.ThriftSecurityException sec
+    2:client.ThriftNotActiveServiceException tnase
   )
 
   // system monitoring methods
@@ -321,10 +340,13 @@ service MasterClientService extends FateService {
     1:security.TCredentials credentials
   ) throws (
     1:client.ThriftSecurityException sec
+    2:client.ThriftNotActiveServiceException tnase
   )
 
   void waitForBalance(
     1:trace.TInfo tinfo
+  ) throws (
+    1:client.ThriftNotActiveServiceException tnase
   )
 
   // tablet server reporting
@@ -348,6 +370,7 @@ service MasterClientService extends FateService {
     2:security.TCredentials credentials
   ) throws (
     1:client.ThriftSecurityException sec
+    2:client.ThriftNotActiveServiceException tnase
   )
 
   // Delegation token request
@@ -357,6 +380,7 @@ service MasterClientService extends FateService {
     3:security.TDelegationTokenConfig cfg
   ) throws (
     1:client.ThriftSecurityException sec
+    2:client.ThriftNotActiveServiceException tnase
   )
 
   // Determine when all provided logs are replicated
@@ -365,6 +389,8 @@ service MasterClientService extends FateService {
     2:security.TCredentials credentials
     3:string tableName
     4:set<string> logsToWatch
+  ) throws (
+    1:client.ThriftNotActiveServiceException tnase
   )
 
 }

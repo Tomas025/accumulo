@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.core.conf;
 
@@ -20,6 +22,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -70,7 +73,7 @@ public class PropertyTypeTest {
     // a corresponding test
     Stream<String> types = Arrays.stream(PropertyType.values()).map(Enum<PropertyType>::name);
 
-    List<String> typesTested = Arrays.stream(this.getClass().getMethods()).map(m -> m.getName())
+    List<String> typesTested = Arrays.stream(this.getClass().getMethods()).map(Method::getName)
         .filter(m -> m.startsWith("testType")).map(m -> m.substring(8))
         .collect(Collectors.toList());
 
@@ -162,8 +165,14 @@ public class PropertyTypeTest {
   }
 
   @Test
-  public void testTypeMEMORY() {
+  public void testTypeBYTES() {
     valid(null, "1024", "20B", "100K", "1500M", "2G");
+    invalid("1M500K", "1M 2K", "1MB", "1.5G", "1,024K", "", "a", "10%");
+  }
+
+  @Test
+  public void testTypeMEMORY() {
+    valid(null, "1024", "20B", "100K", "1500M", "2G", "10%");
     invalid("1M500K", "1M 2K", "1MB", "1.5G", "1,024K", "", "a");
   }
 

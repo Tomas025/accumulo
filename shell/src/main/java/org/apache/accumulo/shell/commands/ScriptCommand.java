@@ -1,20 +1,24 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.shell.commands;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 import java.io.File;
 import java.io.FileReader;
@@ -38,12 +42,17 @@ import javax.script.ScriptEngineManager;
 import javax.script.ScriptException;
 import javax.script.SimpleScriptContext;
 
+import org.apache.accumulo.core.client.AccumuloClient;
+import org.apache.accumulo.core.client.AccumuloException;
+import org.apache.accumulo.core.client.AccumuloSecurityException;
 import org.apache.accumulo.shell.Shell;
 import org.apache.accumulo.shell.Shell.Command;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
 import org.apache.commons.cli.OptionGroup;
 import org.apache.commons.cli.Options;
+
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 
 public class ScriptCommand extends Command {
 
@@ -53,6 +62,8 @@ public class ScriptCommand extends Command {
   protected Option list, engine, script, file, args, out, function, object;
   private static final String DEFAULT_ENGINE = "rhino";
 
+  @SuppressFBWarnings(value = "PATH_TRAVERSAL_IN",
+      justification = "app is run in same security context as user providing the filename")
   @Override
   public int execute(String fullCommand, CommandLine cl, Shell shellState) throws Exception {
 
@@ -67,7 +78,7 @@ public class ScriptCommand extends Command {
         engineName = cl.getOptionValue(engine.getOpt());
       }
       ScriptEngine engine = mgr.getEngineByName(engineName);
-      if (null == engine) {
+      if (engine == null) {
         shellState.printException(new Exception(engineName + " not found"));
         return 1;
       }
@@ -87,7 +98,8 @@ public class ScriptCommand extends Command {
       // are available to the scripts
       // TODO: What else should go in here?
       Bindings b = engine.getBindings(ScriptContext.ENGINE_SCOPE);
-      b.put("connection", shellState.getConnector());
+      putConnector(b, shellState.getAccumuloClient());
+      b.put("client", shellState.getAccumuloClient());
 
       List<Object> argValues = new ArrayList<>();
       if (cl.hasOption(args.getOpt())) {
@@ -111,20 +123,20 @@ public class ScriptCommand extends Command {
       Writer writer = null;
       if (cl.hasOption(out.getOpt())) {
         File f = new File(cl.getOptionValue(out.getOpt()));
-        writer = new FileWriter(f);
+        writer = new FileWriter(f, UTF_8);
         ctx.setWriter(writer);
       }
 
       if (cl.hasOption(file.getOpt())) {
         File f = new File(cl.getOptionValue(file.getOpt()));
         if (!f.exists()) {
-          if (null != writer) {
+          if (writer != null) {
             writer.close();
           }
           shellState.printException(new Exception(f.getAbsolutePath() + " not found"));
           return 1;
         }
-        Reader reader = new FileReader(f);
+        Reader reader = new FileReader(f, UTF_8);
         try {
           engine.eval(reader, ctx);
           if (invoke) {
@@ -135,7 +147,7 @@ public class ScriptCommand extends Command {
           return 1;
         } finally {
           reader.close();
-          if (null != writer) {
+          if (writer != null) {
             writer.close();
           }
         }
@@ -159,12 +171,12 @@ public class ScriptCommand extends Command {
           shellState.printException(ex);
           return 1;
         } finally {
-          if (null != writer) {
+          if (writer != null) {
             writer.close();
           }
         }
       }
-      if (null != writer) {
+      if (writer != null) {
         writer.close();
       }
 
@@ -172,6 +184,15 @@ public class ScriptCommand extends Command {
       printHelp(shellState);
     }
     return 0;
+  }
+
+  @SuppressWarnings("deprecation")
+  private void putConnector(Bindings b, AccumuloClient client) {
+    try {
+      b.put("connection", org.apache.accumulo.core.client.Connector.from(client));
+    } catch (AccumuloSecurityException | AccumuloException e) {
+      throw new RuntimeException(e);
+    }
   }
 
   @Override
@@ -277,7 +298,7 @@ public class ScriptCommand extends Command {
       } else if (cl.hasOption(object.getOpt())) {
         String objectMethod = cl.getOptionValue(object.getOpt());
         String[] parts = objectMethod.split(":");
-        if (!(parts.length == 2)) {
+        if (parts.length != 2) {
           shellState.printException(new Exception("Object and Method must be supplied"));
           return;
         }

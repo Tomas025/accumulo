@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.tserver.session;
 
@@ -29,12 +31,13 @@ import java.util.Set;
 import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.stream.Collectors;
 
-import org.apache.accumulo.core.client.impl.Translator;
-import org.apache.accumulo.core.client.impl.Translators;
 import org.apache.accumulo.core.conf.AccumuloConfiguration;
 import org.apache.accumulo.core.conf.Property;
-import org.apache.accumulo.core.data.thrift.MultiScanResult;
+import org.apache.accumulo.core.data.Column;
+import org.apache.accumulo.core.data.TableId;
+import org.apache.accumulo.core.dataImpl.thrift.MultiScanResult;
 import org.apache.accumulo.core.tabletserver.thrift.ActiveScan;
 import org.apache.accumulo.core.tabletserver.thrift.ScanState;
 import org.apache.accumulo.core.tabletserver.thrift.ScanType;
@@ -59,7 +62,7 @@ public class SessionManager {
   private final long maxIdle;
   private final long maxUpdateIdle;
   private final List<Session> idleSessions = new ArrayList<>();
-  private final Long expiredSessionMarker = Long.valueOf(-1);
+  private final Long expiredSessionMarker = (long) -1;
   private final AccumuloConfiguration aconf;
 
   public SessionManager(AccumuloConfiguration conf) {
@@ -220,7 +223,6 @@ public class SessionManager {
 
   private void sweep(final long maxIdle, final long maxUpdateIdle) {
     List<Session> sessionsToCleanup = new ArrayList<>();
-
     Iterator<Session> iter = sessions.values().iterator();
     while (iter.hasNext()) {
       Session session = iter.next();
@@ -232,8 +234,8 @@ public class SessionManager {
           }
           long idleTime = System.currentTimeMillis() - session.lastAccessTime;
           if (idleTime > configuredIdle) {
-            log.info("Closing idle session from user=" + session.getUser() + ", client="
-                + session.client + ", idle=" + idleTime + "ms");
+            log.info("Closing idle session from user={}, client={}, idle={}ms", session.getUser(),
+                session.client, idleTime);
             iter.remove();
             sessionsToCleanup.add(session);
             session.state = State.REMOVED;
@@ -294,8 +296,9 @@ public class SessionManager {
     }
   }
 
-  public Map<String,MapCounter<ScanRunState>> getActiveScansPerTable() {
-    Map<String,MapCounter<ScanRunState>> counts = new HashMap<>();
+  public Map<TableId,MapCounter<ScanRunState>> getActiveScansPerTable() {
+    Map<TableId,MapCounter<ScanRunState>> counts = new HashMap<>();
+
     Set<Entry<Long,Session>> copiedIdleSessions = new HashSet<>();
 
     synchronized (idleSessions) {
@@ -312,16 +315,16 @@ public class SessionManager {
       Session session = entry.getValue();
       @SuppressWarnings("rawtypes")
       ScanTask nbt = null;
-      String tableID = null;
+      TableId tableID = null;
 
-      if (session instanceof ScanSession) {
-        ScanSession ss = (ScanSession) session;
+      if (session instanceof SingleScanSession) {
+        SingleScanSession ss = (SingleScanSession) session;
         nbt = ss.nextBatchTask;
-        tableID = ss.extent.getTableId();
+        tableID = ss.extent.tableId();
       } else if (session instanceof MultiScanSession) {
         MultiScanSession mss = (MultiScanSession) session;
         nbt = mss.lookupTask;
-        tableID = mss.threadPoolExtent.getTableId();
+        tableID = mss.threadPoolExtent.tableId();
       }
 
       if (nbt == null)
@@ -361,8 +364,8 @@ public class SessionManager {
 
     for (Entry<Long,Session> entry : Iterables.concat(sessions.entrySet(), copiedIdleSessions)) {
       Session session = entry.getValue();
-      if (session instanceof ScanSession) {
-        ScanSession ss = (ScanSession) session;
+      if (session instanceof SingleScanSession) {
+        SingleScanSession ss = (SingleScanSession) session;
 
         ScanState state = ScanState.RUNNING;
 
@@ -384,10 +387,13 @@ public class SessionManager {
           }
         }
 
-        ActiveScan activeScan = new ActiveScan(ss.client, ss.getUser(), ss.extent.getTableId(),
-            ct - ss.startTime, ct - ss.lastAccessTime, ScanType.SINGLE, state, ss.extent.toThrift(),
-            Translator.translate(ss.columnSet, Translators.CT), ss.ssiList, ss.ssio,
-            ss.auths.getAuthorizationsBB(), ss.context);
+        var params = ss.scanParams;
+        ActiveScan activeScan = new ActiveScan(ss.client, ss.getUser(),
+            ss.extent.tableId().canonical(), ct - ss.startTime, ct - ss.lastAccessTime,
+            ScanType.SINGLE, state, ss.extent.toThrift(),
+            params.getColumnSet().stream().map(Column::toThrift).collect(Collectors.toList()),
+            params.getSsiList(), params.getSsio(), params.getAuthorizations().getAuthorizationsBB(),
+            params.getClassLoaderContext());
 
         // scanId added by ACCUMULO-2641 is an optional thrift argument and not available in
         // ActiveScan constructor
@@ -417,10 +423,13 @@ public class SessionManager {
           }
         }
 
-        activeScans.add(new ActiveScan(mss.client, mss.getUser(), mss.threadPoolExtent.getTableId(),
-            ct - mss.startTime, ct - mss.lastAccessTime, ScanType.BATCH, state,
-            mss.threadPoolExtent.toThrift(), Translator.translate(mss.columnSet, Translators.CT),
-            mss.ssiList, mss.ssio, mss.auths.getAuthorizationsBB(), mss.context));
+        var params = mss.scanParams;
+        activeScans.add(new ActiveScan(mss.client, mss.getUser(),
+            mss.threadPoolExtent.tableId().canonical(), ct - mss.startTime, ct - mss.lastAccessTime,
+            ScanType.BATCH, state, mss.threadPoolExtent.toThrift(),
+            params.getColumnSet().stream().map(Column::toThrift).collect(Collectors.toList()),
+            params.getSsiList(), params.getSsio(), params.getAuthorizations().getAuthorizationsBB(),
+            params.getClassLoaderContext()));
       }
     }
 

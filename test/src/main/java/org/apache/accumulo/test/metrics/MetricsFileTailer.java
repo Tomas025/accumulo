@@ -1,22 +1,28 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.test.metrics;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.RandomAccessFile;
 import java.net.URL;
 import java.util.Collections;
@@ -29,11 +35,13 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
-import org.apache.commons.configuration.Configuration;
-import org.apache.commons.configuration.ConfigurationException;
-import org.apache.commons.configuration.PropertiesConfiguration;
+import org.apache.commons.configuration2.Configuration;
+import org.apache.commons.configuration2.PropertiesConfiguration;
+import org.apache.commons.configuration2.ex.ConfigurationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 
 /**
  * This class allows testing of the publishing to the hadoop metrics system by processing a file for
@@ -42,7 +50,7 @@ import org.slf4j.LoggerFactory;
  * instance.
  *
  * This class will simulate tail-ing a file and is intended to be run in a separate thread. When the
- * underlying file has data written, the value returned by getLastUpdate will change, and the last
+ * underlying file has data written, the vaule returned by getLastUpdate will change, and the last
  * line can be retrieved with getLast().
  */
 public class MetricsFileTailer implements Runnable, AutoCloseable {
@@ -53,14 +61,14 @@ public class MetricsFileTailer implements Runnable, AutoCloseable {
 
   private final String metricsPrefix;
 
-  private final Lock lock = new ReentrantLock();
-  private final AtomicBoolean running = new AtomicBoolean(Boolean.TRUE);
+  private Lock lock = new ReentrantLock();
+  private AtomicBoolean running = new AtomicBoolean(Boolean.TRUE);
 
-  private final AtomicLong lastUpdate = new AtomicLong(0);
-  private final long startTime = System.nanoTime();
+  private AtomicLong lastUpdate = new AtomicLong(0);
+  private long startTime = System.nanoTime();
 
   private int lineCounter = 0;
-  private final String[] lineBuffer = new String[BUFFER_SIZE];
+  private String[] lineBuffer = new String[BUFFER_SIZE];
 
   private final String metricsFilename;
 
@@ -79,8 +87,6 @@ public class MetricsFileTailer implements Runnable, AutoCloseable {
 
     // dump received configuration keys received.
     if (log.isTraceEnabled()) {
-      // required for commons configuration - version 1.6
-      @SuppressWarnings("unchecked")
       Iterator<String> keys = sub.getKeys();
       while (keys.hasNext()) {
         log.trace("configuration key:{}", keys.next());
@@ -115,41 +121,39 @@ public class MetricsFileTailer implements Runnable, AutoCloseable {
    *
    * @return a configuration with http sink properties.
    */
+  @SuppressFBWarnings(value = "URLCONNECTION_SSRF_FD",
+      justification = "url specified by test code, not unchecked user input")
   private Configuration loadMetricsConfig() {
-    try {
+    final URL propUrl =
+        getClass().getClassLoader().getResource(MetricsTestSinkProperties.METRICS_PROP_FILENAME);
 
-      final URL propUrl =
-          getClass().getClassLoader().getResource(MetricsTestSinkProperties.METRICS_PROP_FILENAME);
-
-      if (propUrl == null) {
-        throw new IllegalStateException(
-            "Could not find " + MetricsTestSinkProperties.METRICS_PROP_FILENAME + " on classpath");
-      }
-
-      String filename = propUrl.getFile();
-
-      Configuration config = new PropertiesConfiguration(filename);
-
-      final Configuration sub = config.subset(metricsPrefix);
-
-      if (log.isTraceEnabled()) {
-        log.trace("Config {}", config);
-        // required for commons configuration - version 1.6
-        @SuppressWarnings("unchecked")
-        Iterator<String> iterator = sub.getKeys();
-        while (iterator.hasNext()) {
-          String key = iterator.next();
-          log.trace("'{}'='{}'", key, sub.getProperty(key));
-        }
-      }
-
-      return sub;
-
-    } catch (ConfigurationException ex) {
+    if (propUrl == null) {
       throw new IllegalStateException(
-          String.format("Could not find configuration file '%s' on classpath",
+          "Could not find " + MetricsTestSinkProperties.METRICS_PROP_FILENAME + " on classpath");
+    }
+
+    // Read data from this file
+    var config = new PropertiesConfiguration();
+    try (var reader = new InputStreamReader(propUrl.openStream(), UTF_8)) {
+      config.read(reader);
+    } catch (ConfigurationException | IOException e) {
+      throw new IllegalStateException(
+          String.format("Could not find configuration file \'%s\' on classpath",
               MetricsTestSinkProperties.METRICS_PROP_FILENAME));
     }
+
+    final Configuration sub = config.subset(metricsPrefix);
+
+    if (log.isTraceEnabled()) {
+      log.trace("Config {}", config);
+      Iterator<String> iterator = sub.getKeys();
+      while (iterator.hasNext()) {
+        String key = iterator.next();
+        log.trace("'{}'='{}'", key, sub.getProperty(key));
+      }
+    }
+
+    return sub;
   }
 
   /**

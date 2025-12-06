@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.shell.commands;
 
@@ -21,11 +23,11 @@ import java.util.Arrays;
 import java.util.SortedSet;
 import java.util.TreeSet;
 
-import org.apache.accumulo.core.client.Instance;
 import org.apache.accumulo.core.client.NamespaceNotFoundException;
 import org.apache.accumulo.core.client.TableNotFoundException;
 import org.apache.accumulo.core.client.admin.DiskUsage;
-import org.apache.accumulo.core.client.impl.Namespaces;
+import org.apache.accumulo.core.clientImpl.Namespaces;
+import org.apache.accumulo.core.data.NamespaceId;
 import org.apache.accumulo.core.util.NumUtil;
 import org.apache.accumulo.shell.Shell;
 import org.apache.accumulo.shell.Shell.Command;
@@ -49,17 +51,16 @@ public class DUCommand extends Command {
     }
 
     if (cl.hasOption(optNamespace.getOpt())) {
-      Instance instance = shellState.getInstance();
-      String namespaceId =
-          Namespaces.getNamespaceId(instance, cl.getOptionValue(optNamespace.getOpt()));
-      tables.addAll(Namespaces.getTableNames(instance, namespaceId));
+      NamespaceId namespaceId = Namespaces.getNamespaceId(shellState.getContext(),
+          cl.getOptionValue(optNamespace.getOpt()));
+      tables.addAll(Namespaces.getTableNames(shellState.getContext(), namespaceId));
     }
 
-    boolean prettyPrint = cl.hasOption(optHumanReadble.getOpt()) ? true : false;
+    boolean prettyPrint = cl.hasOption(optHumanReadble.getOpt());
 
     // Add any patterns
     if (cl.hasOption(optTablePattern.getOpt())) {
-      for (String table : shellState.getConnector().tableOperations().list()) {
+      for (String table : shellState.getAccumuloClient().tableOperations().list()) {
         if (table.matches(cl.getOptionValue(optTablePattern.getOpt()))) {
           tables.add(table);
         }
@@ -73,7 +74,7 @@ public class DUCommand extends Command {
 
     // sanity check...make sure the user-specified tables exist
     for (String tableName : tables) {
-      if (!shellState.getConnector().tableOperations().exists(tableName)) {
+      if (!shellState.getAccumuloClient().tableOperations().exists(tableName)) {
         throw new TableNotFoundException(tableName, tableName,
             "specified table that doesn't exist");
       }
@@ -81,7 +82,8 @@ public class DUCommand extends Command {
 
     try {
       String valueFormat = prettyPrint ? "%9s" : "%,24d";
-      for (DiskUsage usage : shellState.getConnector().tableOperations().getDiskUsage(tables)) {
+      for (DiskUsage usage : shellState.getAccumuloClient().tableOperations()
+          .getDiskUsage(tables)) {
         Object value = prettyPrint ? NumUtil.bigNumberForSize(usage.getUsage()) : usage.getUsage();
         shellState.getReader()
             .println(String.format(valueFormat + " %s", value, usage.getTables()));

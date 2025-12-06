@@ -21,7 +21,7 @@ package org.apache.accumulo.core.client.admin;
 import java.util.Map;
 import java.util.Set;
 
-import org.apache.accumulo.core.client.impl.CloneConfigurationImpl;
+import org.apache.accumulo.core.clientImpl.CloneConfigurationImpl;
 
 /**
  * A configuration object that can be used with the table clone command in the

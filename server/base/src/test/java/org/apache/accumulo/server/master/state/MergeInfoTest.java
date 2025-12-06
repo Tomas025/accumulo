@@ -1,18 +1,20 @@
 /*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 package org.apache.accumulo.server.master.state;
 
@@ -31,7 +33,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 
-import org.apache.accumulo.core.data.impl.KeyExtent;
+import org.apache.accumulo.core.data.TableId;
+import org.apache.accumulo.core.dataImpl.KeyExtent;
 import org.apache.hadoop.io.DataInputBuffer;
 import org.apache.hadoop.io.DataOutputBuffer;
 import org.apache.hadoop.io.Text;
@@ -44,7 +47,7 @@ public class MergeInfoTest {
   private MergeInfo mi;
 
   @Before
-  public void setUp() throws Exception {
+  public void setUp() {
     keyExtent = createMock(KeyExtent.class);
   }
 
@@ -71,7 +74,7 @@ public class MergeInfoTest {
     String table = "table";
     Text endRow = new Text("end");
     Text prevEndRow = new Text("begin");
-    keyExtent = new KeyExtent(table, endRow, prevEndRow);
+    keyExtent = new KeyExtent(TableId.of(table), endRow, prevEndRow);
     mi = new MergeInfo(keyExtent, MergeInfo.Operation.DELETE);
     mi.setState(MergeState.STARTED);
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -88,10 +91,10 @@ public class MergeInfoTest {
 
   @Test
   public void testNeedsToBeChopped_DifferentTables() {
-    expect(keyExtent.getTableId()).andReturn("table1");
+    expect(keyExtent.tableId()).andReturn(TableId.of("table1"));
     replay(keyExtent);
     KeyExtent keyExtent2 = createMock(KeyExtent.class);
-    expect(keyExtent2.getTableId()).andReturn("table2");
+    expect(keyExtent2.tableId()).andReturn(TableId.of("table2"));
     replay(keyExtent2);
     mi = new MergeInfo(keyExtent, MergeInfo.Operation.MERGE);
     assertFalse(mi.needsToBeChopped(keyExtent2));
@@ -99,9 +102,9 @@ public class MergeInfoTest {
 
   @Test
   public void testNeedsToBeChopped_NotDelete() {
-    expect(keyExtent.getTableId()).andReturn("table1");
+    expect(keyExtent.tableId()).andReturn(TableId.of("table1"));
     KeyExtent keyExtent2 = createMock(KeyExtent.class);
-    expect(keyExtent2.getTableId()).andReturn("table1");
+    expect(keyExtent2.tableId()).andReturn(TableId.of("table1"));
     replay(keyExtent2);
     expect(keyExtent.overlaps(keyExtent2)).andReturn(true);
     replay(keyExtent);
@@ -125,12 +128,12 @@ public class MergeInfoTest {
   }
 
   private void testNeedsToBeChopped_Delete(String prevEndRow, boolean expected) {
-    expect(keyExtent.getTableId()).andReturn("table1");
-    expect(keyExtent.getEndRow()).andReturn(new Text("prev"));
+    expect(keyExtent.tableId()).andReturn(TableId.of("table1"));
+    expect(keyExtent.endRow()).andReturn(new Text("prev"));
     replay(keyExtent);
     KeyExtent keyExtent2 = createMock(KeyExtent.class);
-    expect(keyExtent2.getTableId()).andReturn("table1");
-    expect(keyExtent2.getPrevEndRow()).andReturn(prevEndRow != null ? new Text(prevEndRow) : null);
+    expect(keyExtent2.tableId()).andReturn(TableId.of("table1"));
+    expect(keyExtent2.prevEndRow()).andReturn(prevEndRow != null ? new Text(prevEndRow) : null);
     expectLastCall().anyTimes();
     replay(keyExtent2);
     mi = new MergeInfo(keyExtent, MergeInfo.Operation.DELETE);
@@ -150,9 +153,9 @@ public class MergeInfoTest {
   public void testOverlaps_DoesNotNeedChopping() {
     KeyExtent keyExtent2 = createMock(KeyExtent.class);
     expect(keyExtent.overlaps(keyExtent2)).andReturn(false);
-    expect(keyExtent.getTableId()).andReturn("table1");
+    expect(keyExtent.tableId()).andReturn(TableId.of("table1"));
     replay(keyExtent);
-    expect(keyExtent2.getTableId()).andReturn("table2");
+    expect(keyExtent2.tableId()).andReturn(TableId.of("table2"));
     replay(keyExtent2);
     mi = new MergeInfo(keyExtent, MergeInfo.Operation.MERGE);
     assertFalse(mi.overlaps(keyExtent2));
@@ -162,11 +165,11 @@ public class MergeInfoTest {
   public void testOverlaps_NeedsChopping() {
     KeyExtent keyExtent2 = createMock(KeyExtent.class);
     expect(keyExtent.overlaps(keyExtent2)).andReturn(false);
-    expect(keyExtent.getTableId()).andReturn("table1");
-    expect(keyExtent.getEndRow()).andReturn(new Text("prev"));
+    expect(keyExtent.tableId()).andReturn(TableId.of("table1"));
+    expect(keyExtent.endRow()).andReturn(new Text("prev"));
     replay(keyExtent);
-    expect(keyExtent2.getTableId()).andReturn("table1");
-    expect(keyExtent2.getPrevEndRow()).andReturn(new Text("prev"));
+    expect(keyExtent2.tableId()).andReturn(TableId.of("table1"));
+    expect(keyExtent2.prevEndRow()).andReturn(new Text("prev"));
     expectLastCall().anyTimes();
     replay(keyExtent2);
     mi = new MergeInfo(keyExtent, MergeInfo.Operation.DELETE);
@@ -187,7 +190,7 @@ public class MergeInfoTest {
   }
 
   private static KeyExtent ke(String tableId, String endRow, String prevEndRow) {
-    return new KeyExtent(tableId, endRow == null ? null : new Text(endRow),
+    return new KeyExtent(TableId.of(tableId), endRow == null ? null : new Text(endRow),
         prevEndRow == null ? null : new Text(prevEndRow));
   }
 
@@ -203,7 +206,7 @@ public class MergeInfoTest {
   }
 
   @Test
-  public void testNeedsToBeChopped() throws Exception {
+  public void testNeedsToBeChopped() {
     MergeInfo info = new MergeInfo(ke("x", "b", "a"), MergeInfo.Operation.DELETE);
     assertTrue(info.needsToBeChopped(ke("x", "c", "b")));
     assertTrue(info.overlaps(ke("x", "c", "b")));
